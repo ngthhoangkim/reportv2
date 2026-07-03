@@ -1,6 +1,15 @@
 const fs = require('fs');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
+function toPdfSafeText(value) {
+  return String(value == null ? '' : value)
+    .replace(/Đ/g, 'D')
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '?');
+}
+
 function linesFromCase(caseData, mediaSummary) {
   const patient = (caseData.patients || [])[0] || {};
   const lines = [
@@ -39,7 +48,8 @@ async function drawSummaryPdf(outputPath, caseData, mediaSummary) {
       page = pdf.addPage([595.28, 841.89]);
       y = 805;
     }
-    const chunks = line.length > 105 ? line.match(/.{1,105}/g) : [line];
+    const safeLine = toPdfSafeText(line);
+    const chunks = safeLine.length > 105 ? safeLine.match(/.{1,105}/g) : [safeLine];
     for (const chunk of chunks) {
       page.drawText(chunk, { x: 40, y, size: 9, font, color: rgb(0.1, 0.1, 0.1) });
       y -= 14;
@@ -50,4 +60,4 @@ async function drawSummaryPdf(outputPath, caseData, mediaSummary) {
   return outputPath;
 }
 
-module.exports = { drawSummaryPdf, linesFromCase };
+module.exports = { drawSummaryPdf, linesFromCase, toPdfSafeText };
