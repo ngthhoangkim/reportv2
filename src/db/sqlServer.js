@@ -1,7 +1,7 @@
-const sql = require('mssql');
 const { config } = require('../config/env');
 
 let pool = null;
+let sqlModule = null;
 
 const WRITE_SQL_RE = /\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|EXEC|EXECUTE|GRANT|REVOKE|BACKUP|RESTORE)\b/i;
 const SELECT_INTO_RE = /\bSELECT\b[\s\S]*\bINTO\b/i;
@@ -13,7 +13,32 @@ function assertReadOnly(query) {
   }
 }
 
-function buildConfig() {
+function getSqlModule() {
+  if (sqlModule) return sqlModule;
+  if (config.db.authMode === 'windows') {
+    sqlModule = require('mssql/msnodesqlv8');
+  } else {
+    sqlModule = require('mssql');
+  }
+  return sqlModule;
+}
+
+function boolText(value) {
+  return value ? 'yes' : 'no';
+}
+
+function buildWindowsConnectionString() {
+  return [
+    'Driver={ODBC Driver 17 for SQL Server}',
+    `Server=${config.db.server},${config.db.port}`,
+    `Database=${config.db.database}`,
+    'Trusted_Connection=Yes',
+    `Encrypt=${boolText(config.db.encrypt)}`,
+    `TrustServerCertificate=${boolText(config.db.trustServerCertificate)}`,
+  ].join(';');
+}
+
+function buildSqlLoginConfig() {
   return {
     server: config.db.server,
     port: config.db.port,
@@ -28,14 +53,29 @@ function buildConfig() {
     options: {
       encrypt: config.db.encrypt,
       trustServerCertificate: config.db.trustServerCertificate,
-      connectTimeout: 15000,
-      requestTimeout: 120000,
+      connectTimeout: config.db.connectTimeoutMs,
+      requestTimeout: config.db.requestTimeoutMs,
     },
   };
 }
 
+function buildConfig() {
+  if (config.db.authMode === 'windows') {
+    return {
+      connectionString: buildWindowsConnectionString(),
+      options: {
+        trustedConnection: true,
+        connectTimeout: config.db.connectTimeoutMs,
+        requestTimeout: config.db.requestTimeoutMs,
+      },
+    };
+  }
+  return buildSqlLoginConfig();
+}
+
 async function getPool() {
   if (!pool) {
+    const sql = getSqlModule();
     pool = await new sql.ConnectionPool(buildConfig()).connect();
   }
   return pool;
@@ -74,4 +114,4 @@ async function close() {
   }
 }
 
-module.exports = { query, queryAll, healthCheck, close, assertReadOnly };
+module.exports = { query, queryAll, healthCheck, close, assertReadOnly, buildConfig };

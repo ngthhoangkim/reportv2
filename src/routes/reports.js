@@ -8,6 +8,7 @@ router.post('/api/reports/generate', async (req, res) => {
   const result = await generateReportSafe({
     fileNum: req.body.fileNum,
     sessionId: req.body.sessionId,
+    resultFileName: req.body.resultFileName,
     force: Boolean(req.body.force),
     upload: Boolean(req.body.upload),
   });

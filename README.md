@@ -48,6 +48,17 @@ npm run backfill -- --failed-only --force --upload
 - Queue Word COM chạy tuần tự để tránh nhiều `WINWORD.EXE` chạy song song.
 - Nếu chưa có template, Phase 1 sinh PDF summary để kiểm tra dữ liệu và luồng end-to-end.
 
+## File Names
+
+CDHA giữ đúng quy tắc v1 để upload S3 overwrite file cũ:
+
+- Ưu tiên `resultFileName` nếu API/body truyền vào.
+- Nếu không có, lấy `CN_ImagingResult.FileName` của dòng mới nhất trong session.
+- Sanitize ký tự không hợp lệ rồi thêm `.pdf`.
+- Fallback cuối cùng: `{fileNum}_{sessionId}.pdf`.
+
+Toa thuốc v1 upload vào `khambenh/toathuoc/` với tên `{sessionId}.pdf`.
+
 ## Run Hidden On Windows
 
 ```powershell

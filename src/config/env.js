@@ -27,6 +27,7 @@ function resolvePath(value, fallback) {
 
 const config = {
   db: {
+    authMode: envString('DB_AUTH_MODE', 'sql').toLowerCase(),
     server: envString('DB_SERVER', 'localhost'),
     port: envNumber('DB_PORT', 1433),
     database: envString('DB_DATABASE', 'Hospital_NM'),
@@ -34,9 +35,11 @@ const config = {
     password: envString('DB_PASSWORD', ''),
     encrypt: envBool('DB_ENCRYPT', true),
     trustServerCertificate: envBool('DB_TRUST_SERVER_CERTIFICATE', true),
+    connectTimeoutMs: envNumber('DB_CONNECT_TIMEOUT_MS', 15000),
+    requestTimeoutMs: envNumber('DB_REQUEST_TIMEOUT_MS', 120000),
   },
   app: {
-    port: envNumber('APP_PORT', defaults.app.port),
+    port: envNumber('APP_PORT', envNumber('PORT', defaults.app.port)),
   },
   paths: {
     sourceImageDir: resolvePath('PATHS_SOURCE_IMAGE_DIR', path.join(process.cwd(), 'img')),
@@ -63,7 +66,7 @@ const config = {
     useWord: envBool('USE_WORD', true),
   },
   archives: {
-    passwords: envString('CN_FILES_ZIP_PASSWORDS', '')
+    passwords: envString('CN_FILES_ZIP_PASSWORDS', envString('CN_FILES_ZIP_PASSWORD', ''))
       .split(/[;,|]/)
       .map((s) => s.trim())
       .filter(Boolean),

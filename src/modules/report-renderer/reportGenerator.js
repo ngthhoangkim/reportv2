@@ -9,14 +9,10 @@ const { ensureDir } = require('../../config/paths');
 const { config } = require('../../config/env');
 const { drawSummaryPdf } = require('./pdfSummary');
 const { renderTemplateToPdf, buildTemplateData } = require('./docxTemplate');
+const { resolveCdhaPdfFileName } = require('./outputNaming');
 
 function snapshotKey(fileNum, sessionId) {
   return `${String(fileNum).trim()}::${sessionId == null || sessionId === '' ? 'all' : Number(sessionId)}`;
-}
-
-function outputName(fileNum, sessionId) {
-  const sid = sessionId == null || sessionId === '' ? 'all' : String(sessionId);
-  return `${String(fileNum).trim()}_${sid}_FullReport.pdf`;
 }
 
 function shouldSkipByHash(key, sourceHash, force) {
@@ -42,7 +38,8 @@ async function generateReport(options) {
 
   const mediaSummary = await resolveCaseMedia(caseData);
   ensureDir(config.paths.output);
-  const pdfPath = path.join(config.paths.output, outputName(fileNum, sessionId));
+  const finalName = resolveCdhaPdfFileName(caseData, options.resultFileName);
+  const pdfPath = path.join(config.paths.output, finalName);
   const templateData = buildTemplateData(caseData, mediaSummary);
   const rendered = await renderTemplateToPdf('full-report', templateData, pdfPath);
   if (!rendered) {
@@ -55,6 +52,8 @@ async function generateReport(options) {
     sessionId,
     sourceHash: caseData.sourceHash,
     pdfPath,
+    fileName: finalName,
+    resultFileName: finalName.replace(/\.pdf$/i, ''),
     bytes: stat.size,
     media: mediaSummary,
     renderer: rendered ? 'docx-template-word-com' : 'summary-pdf',

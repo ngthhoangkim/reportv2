@@ -67,6 +67,7 @@ async function runBackfill(options) {
     results.push(await generateReportSafe({
       fileNum: item.fileNum,
       sessionId: item.sessionId,
+      resultFileName: options.resultFileName,
       force: Boolean(options.force),
       upload: Boolean(options.upload),
     }));
