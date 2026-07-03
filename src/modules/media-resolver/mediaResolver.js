@@ -7,6 +7,27 @@ const logger = require('../logging/logger');
 
 const IMAGE_EXTENSIONS = new Set(['.bmp', '.gif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp']);
 const PROBE_EXTENSIONS = ['', '.zip', '.ZIP', '.pdf', '.PDF', '.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG', '.bmp', '.BMP'];
+const IMAGE_PROBE_EXTENSIONS = [
+  '',
+  '.jpg',
+  '.jpeg',
+  '.JPG',
+  '.JPEG',
+  '.png',
+  '.PNG',
+  '.bmp',
+  '.BMP',
+  '.webp',
+  '.WEBP',
+  '.gif',
+  '.GIF',
+  '.tif',
+  '.tiff',
+  '.TIF',
+  '.TIFF',
+  '.zip',
+  '.ZIP',
+];
 
 function cleanFileName(name) {
   return String(name || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
@@ -20,12 +41,44 @@ function fileExists(filePath) {
   }
 }
 
-function buildCandidates(fileName) {
+function readMagic(filePath, len = 16) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(len);
+      const n = fs.readSync(fd, buf, 0, len, 0);
+      return buf.slice(0, n);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
+
+function isZipMagic(buf) {
+  return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b;
+}
+
+function isJpegMagic(buf) {
+  return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+}
+
+function isPngMagic(buf) {
+  return buf.length >= 8
+    && buf[0] === 0x89
+    && buf[1] === 0x50
+    && buf[2] === 0x4e
+    && buf[3] === 0x47;
+}
+
+function buildCandidates(fileName, options = {}) {
   const clean = String(fileName || '').trim();
   if (!clean) return [];
   if (path.isAbsolute(clean) || /^\\\\/.test(clean)) return [clean];
 
-  const names = path.extname(clean) ? [clean] : PROBE_EXTENSIONS.map((ext) => `${clean}${ext}`);
+  const probes = options.preferImages ? IMAGE_PROBE_EXTENSIONS : PROBE_EXTENSIONS;
+  const names = path.extname(clean) ? [clean] : probes.map((ext) => `${clean}${ext}`);
   const roots = [
     config.paths.sourceImageDir,
     config.paths.fallbackImageDir,
@@ -56,7 +109,7 @@ async function copyToCache(sourcePath, subDir = 'media') {
 }
 
 async function resolveFile(fileName, options = {}) {
-  const candidates = buildCandidates(fileName);
+  const candidates = buildCandidates(fileName, options);
   for (const candidate of candidates) {
     if (fileExists(candidate)) {
       const cachedPath = await copyToCache(candidate, options.subDir || 'media');
@@ -153,4 +206,8 @@ module.exports = {
   extractZip,
   listFiles,
   isImageFile,
+  readMagic,
+  isZipMagic,
+  isJpegMagic,
+  isPngMagic,
 };

@@ -6,7 +6,15 @@ const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
 const logger = require('../logging/logger');
 const { collectImagingRenderRecords, collectPathologyImages } = require('../case-collector/collector');
-const { resolveFile, extractZip, listFiles } = require('../media-resolver/mediaResolver');
+const {
+  resolveFile,
+  extractZip,
+  listFiles,
+  readMagic,
+  isZipMagic,
+  isJpegMagic,
+  isPngMagic,
+} = require('../media-resolver/mediaResolver');
 const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/wordConverter');
 const { rtfBufferToPlain } = require('./rtfPlain');
 const { selectTemplate } = require('./templateSelector');
@@ -161,7 +169,7 @@ async function resolveRecordImages(record) {
       continue;
     }
 
-    const item = await resolveFile(row.filename, { subDir: 'pathology-images' });
+    const item = await resolveFile(row.filename, { subDir: 'pathology-images', preferImages: true });
     if (item.found && (isEmbeddableImage(item.cachedPath) || isPdfFile(item.cachedPath))) {
       resolved.push(item.cachedPath);
     } else if (item.found) {
@@ -170,6 +178,14 @@ async function resolveRecordImages(record) {
       missing.push({ filename: row.filename, reason: 'missing' });
     }
   }
+  logger.job('info', 'cdha images resolved', {
+    imagingResultId: record.imagingResultId,
+    fileName: record.fileName,
+    wantedImages: rows.length,
+    archiveFiles: archiveFiles.length,
+    resolvedImages: resolved.length,
+    missingImages: missing.length,
+  });
   return { files: resolved, missing };
 }
 
@@ -180,7 +196,8 @@ async function resolveRecordArchiveFiles(record) {
   if (!archive.found) return files;
 
   const ext = path.extname(archive.cachedPath).toLowerCase();
-  if (ext === '.zip') {
+  const magic = readMagic(archive.cachedPath);
+  if (ext === '.zip' || isZipMagic(magic)) {
     const extracted = await extractZip(
       archive.cachedPath,
       `cdha-${record.imagingResultId || record.fileName}`,
@@ -193,6 +210,16 @@ async function resolveRecordArchiveFiles(record) {
 
   if (isEmbeddableImage(archive.cachedPath) || isPdfFile(archive.cachedPath)) {
     files.push(archive.cachedPath);
+  } else if (isJpegMagic(magic) || isPngMagic(magic)) {
+    const extFromMagic = isPngMagic(magic) ? '.png' : '.jpg';
+    const target = path.join(
+      config.paths.tmpDir,
+      'raw-images',
+      `${record.imagingResultId || record.fileName}${extFromMagic}`,
+    );
+    ensureDir(path.dirname(target));
+    await fs.promises.copyFile(archive.cachedPath, target);
+    files.push(target);
   } else if (fs.existsSync(archive.cachedPath) && fs.statSync(archive.cachedPath).isDirectory()) {
     files.push(...await listFiles(archive.cachedPath));
   }
