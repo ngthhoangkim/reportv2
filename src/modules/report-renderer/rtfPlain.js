@@ -77,10 +77,31 @@ function stripRtfHeaderGroups(rtf) {
   return s;
 }
 
+function decodeRtfHexEscapesWin1258(rtf) {
+  return String(rtf || '').replace(/\\'([0-9a-fA-F]{2})/g, (_, h) =>
+    iconv.decode(Buffer.from([parseInt(h, 16)]), 'win1258'),
+  );
+}
+
+function normalizeVietnameseToneMarks(text) {
+  const vowels = 'AÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬEÉÈẺẼẸÊẾỀỂỄỆIÍÌỈĨỊOÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢUÚÙỦŨỤƯỨỪỬỮỰYÝỲỶỸỴ'
+    + 'aáàảãạăắằẳẵặâấầẩẫậeéèẻẽẹêếềểễệiíìỉĩịoóòỏõọôốồổỗộơớờởỡợuúùủũụưứừửữựyýỳỷỹỵ';
+  const map = {
+    '`': '\u0300',
+    '´': '\u0301',
+  };
+  const vowelClass = `[${vowels}]`;
+  return String(text || '')
+    .replace(new RegExp(`(${vowelClass})([\`´])`, 'g'), (_, base, mark) => `${base}${map[mark] || mark}`)
+    .normalize('NFC');
+}
+
 function fallbackRtfToPlainText(rtfText) {
-  return stripRtfHeaderGroups(rtfText)
+  const text = stripRtfHeaderGroups(rtfText)
     .replace(/\r\n/g, '\n')
-    .replace(/\\'([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\'([0-9a-fA-F]{2})/g, (_, h) =>
+      iconv.decode(Buffer.from([parseInt(h, 16)]), 'win1258'),
+    )
     .replace(/\\par[d]?\s*/gi, '\n')
     .replace(/\\line\s*/gi, '\n')
     .replace(/\\tab/g, ' ')
@@ -97,6 +118,7 @@ function fallbackRtfToPlainText(rtfText) {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{4,}/g, '\n\n\n')
     .trim();
+  return normalizeVietnameseToneMarks(text);
 }
 
 function rtfBufferToPlain(buffer) {
@@ -104,4 +126,10 @@ function rtfBufferToPlain(buffer) {
   return rtf ? fallbackRtfToPlainText(rtf) : '';
 }
 
-module.exports = { decompressToString, fallbackRtfToPlainText, rtfBufferToPlain };
+module.exports = {
+  decompressToString,
+  decodeRtfHexEscapesWin1258,
+  normalizeVietnameseToneMarks,
+  fallbackRtfToPlainText,
+  rtfBufferToPlain,
+};

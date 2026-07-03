@@ -6,7 +6,7 @@ const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
 const logger = require('../logging/logger');
 const { collectImagingRenderRecords, collectPathologyImages } = require('../case-collector/collector');
-const { resolveFile } = require('../media-resolver/mediaResolver');
+const { resolveFile, extractZip, listFiles } = require('../media-resolver/mediaResolver');
 const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/wordConverter');
 const { rtfBufferToPlain } = require('./rtfPlain');
 const { selectTemplate } = require('./templateSelector');
@@ -151,9 +151,16 @@ async function renderRecordPdfSegment(record, segmentIndex, workDir) {
 
 async function resolveRecordImages(record) {
   const rows = await collectPathologyImages(record.imagingResultId, config.media.printedImagesOnly);
+  const archiveFiles = await resolveRecordArchiveFiles(record);
   const resolved = [];
   const missing = [];
   for (const row of rows) {
+    const fromArchive = findImageInFiles(row.filename, archiveFiles);
+    if (fromArchive) {
+      resolved.push(fromArchive);
+      continue;
+    }
+
     const item = await resolveFile(row.filename, { subDir: 'pathology-images' });
     if (item.found && (isEmbeddableImage(item.cachedPath) || isPdfFile(item.cachedPath))) {
       resolved.push(item.cachedPath);
@@ -164,6 +171,46 @@ async function resolveRecordImages(record) {
     }
   }
   return { files: resolved, missing };
+}
+
+async function resolveRecordArchiveFiles(record) {
+  const files = [];
+  if (!record.fileName || !String(record.fileName).trim()) return files;
+  const archive = await resolveFile(record.fileName, { subDir: 'cdha-archives' });
+  if (!archive.found) return files;
+
+  const ext = path.extname(archive.cachedPath).toLowerCase();
+  if (ext === '.zip') {
+    const extracted = await extractZip(
+      archive.cachedPath,
+      `cdha-${record.imagingResultId || record.fileName}`,
+    );
+    if (extracted.ok) {
+      files.push(...(extracted.files || []));
+    }
+    return files;
+  }
+
+  if (isEmbeddableImage(archive.cachedPath) || isPdfFile(archive.cachedPath)) {
+    files.push(archive.cachedPath);
+  } else if (fs.existsSync(archive.cachedPath) && fs.statSync(archive.cachedPath).isDirectory()) {
+    files.push(...await listFiles(archive.cachedPath));
+  }
+  return files;
+}
+
+function fileStem(value) {
+  return path.basename(String(value || '').trim()).replace(/\.[^.]+$/, '').toLowerCase();
+}
+
+function findImageInFiles(imageName, files) {
+  const targetBase = path.basename(String(imageName || '').trim()).toLowerCase();
+  const targetStem = fileStem(imageName);
+  return (files || []).find((file) => {
+    if (!isEmbeddableImage(file) && !isPdfFile(file)) return false;
+    const base = path.basename(file).toLowerCase();
+    return base === targetBase || fileStem(base) === targetStem;
+  }) || null;
 }
 
 async function fetchPacsPdf(url, workDir, index) {
