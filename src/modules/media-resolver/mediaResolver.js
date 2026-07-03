@@ -69,11 +69,6 @@ async function resolveFile(fileName, options = {}) {
   return { found: false, fileName, candidates };
 }
 
-function setZipPassword(zip, password) {
-  if (!password) return;
-  if (typeof zip.setPassword === 'function') zip.setPassword(password);
-}
-
 async function extractZip(zipPath, outputSubDir = 'zip') {
   const outputDir = path.join(config.paths.tmpDir, 'extract', outputSubDir, path.basename(zipPath, path.extname(zipPath)));
   ensureDir(outputDir);
@@ -83,12 +78,11 @@ async function extractZip(zipPath, outputSubDir = 'zip') {
   for (const password of passwords) {
     try {
       const zip = new AdmZip(zipPath);
-      setZipPassword(zip, password);
       const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
       for (const entry of entries) {
         const target = path.join(outputDir, cleanFileName(entry.entryName));
         ensureDir(path.dirname(target));
-        fs.writeFileSync(target, entry.getData());
+        fs.writeFileSync(target, entry.getData(password));
       }
       const files = await listFiles(outputDir);
       logger.job('info', 'zip extracted', { zipPath, outputDir, fileCount: files.length, usedPassword: Boolean(password) });
