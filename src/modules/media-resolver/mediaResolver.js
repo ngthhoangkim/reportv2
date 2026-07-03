@@ -90,7 +90,7 @@ async function extractZip(zipPath, outputSubDir = 'zip') {
     } catch (err) {
       lastError = err;
       const msg = String(err && err.message ? err.message : err);
-      if (/aes|encrypted|bad password|invalid password|wrong password/i.test(msg)) {
+      if (password && /aes|encrypted|bad password|invalid password|wrong password/i.test(msg)) {
         logger.job('warn', 'zip password attempt failed', { zipPath, usedPassword: Boolean(password), error: msg });
       }
     }

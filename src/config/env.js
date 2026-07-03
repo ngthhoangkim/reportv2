@@ -65,6 +65,10 @@ const config = {
     timeoutMs: envNumber('WORD_CONVERT_TIMEOUT_MS', defaults.word.timeoutMs),
     useWord: envBool('USE_WORD', true),
   },
+  media: {
+    printedImagesOnly: envBool('PRINTED_IMAGES_ONLY', true),
+    pacsFetchTimeoutMs: envNumber('PACS_FETCH_TIMEOUT_MS', 45000),
+  },
   archives: {
     passwords: envString('CN_FILES_ZIP_PASSWORDS', envString('CN_FILES_ZIP_PASSWORD', ''))
       .split(/[;,|]/)

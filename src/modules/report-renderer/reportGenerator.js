@@ -10,6 +10,7 @@ const { config } = require('../../config/env');
 const { drawSummaryPdf } = require('./pdfSummary');
 const { renderTemplateToPdf, buildTemplateData } = require('./docxTemplate');
 const { resolveCdhaPdfFileName } = require('./outputNaming');
+const { renderCdhaTemplatePdf } = require('./cdhaTemplateRenderer');
 
 function snapshotKey(fileNum, sessionId) {
   return `${String(fileNum).trim()}::${sessionId == null || sessionId === '' ? 'all' : Number(sessionId)}`;
@@ -41,7 +42,16 @@ async function generateReport(options) {
   const finalName = resolveCdhaPdfFileName(caseData, options.resultFileName);
   const pdfPath = path.join(config.paths.output, finalName);
   const templateData = buildTemplateData(caseData, mediaSummary);
-  const rendered = await renderTemplateToPdf('full-report', templateData, pdfPath);
+  const cdhaRendered = await renderCdhaTemplatePdf({
+    fileNum,
+    sessionId,
+    outputPath: pdfPath,
+    caseData,
+    mediaSummary,
+  });
+  const rendered = cdhaRendered.ok
+    ? cdhaRendered
+    : await renderTemplateToPdf('full-report', templateData, pdfPath);
   if (!rendered) {
     await drawSummaryPdf(pdfPath, caseData, mediaSummary);
   }
@@ -56,7 +66,8 @@ async function generateReport(options) {
     resultFileName: finalName.replace(/\.pdf$/i, ''),
     bytes: stat.size,
     media: mediaSummary,
-    renderer: rendered ? 'docx-template-word-com' : 'summary-pdf',
+    renderer: cdhaRendered.ok ? 'cdha-template-word-com' : (rendered ? 'docx-template-word-com' : 'summary-pdf'),
+    renderDetails: cdhaRendered.ok ? cdhaRendered : undefined,
     startedAt,
     completedAt: new Date().toISOString(),
   };

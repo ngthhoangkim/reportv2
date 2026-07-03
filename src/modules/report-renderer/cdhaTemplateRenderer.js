@@ -1,0 +1,276 @@
+const fs = require('fs');
+const path = require('path');
+const PizZip = require('pizzip');
+const Docxtemplater = require('docxtemplater');
+const { config } = require('../../config/env');
+const { ensureDir } = require('../../config/paths');
+const logger = require('../logging/logger');
+const { collectImagingRenderRecords, collectPathologyImages } = require('../case-collector/collector');
+const { resolveFile } = require('../media-resolver/mediaResolver');
+const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/wordConverter');
+const { rtfBufferToPlain } = require('./rtfPlain');
+const { selectTemplate } = require('./templateSelector');
+const { mergeFilesToPdf, isPdfFile, isEmbeddableImage } = require('./pdfMerge');
+
+function str(value) {
+  if (value == null) return '';
+  try {
+    return String(value).normalize('NFC');
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDateVN(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+function calcAge(dob, atDate) {
+  if (!dob) return '';
+  const birth = new Date(dob);
+  const at = atDate ? new Date(atDate) : new Date();
+  if (Number.isNaN(birth.getTime()) || Number.isNaN(at.getTime())) return '';
+  let age = at.getFullYear() - birth.getFullYear();
+  const m = at.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && at.getDate() < birth.getDate())) age -= 1;
+  return age > 0 && age < 130 ? String(age) : '';
+}
+
+function cleanReportField(value) {
+  return str(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{5,}/g, '\n\n\n\n')
+    .trim();
+}
+
+function buildPayload(record) {
+  const result = rtfBufferToPlain(record.resultData);
+  const conclusion = rtfBufferToPlain(record.conclusionData);
+  const suggestion = rtfBufferToPlain(record.suggestionData);
+  const age = calcAge(record.dob, record.ngayKham);
+  const payload = {
+    FileNm: str(record.fileNum || record.itemNum),
+    PatientName: str(record.patientName),
+    Age: age ? ` ${age}` : '',
+    Gender: str(record.gender),
+    Diagnosis: cleanReportField(record.conclusion),
+    ReferDoctor: str(record.requestedDoctor),
+    Doctor: str(record.doctor),
+    ItemNum: str(record.itemNum),
+    SampleNumber: str(record.sampleNumber || record.itemNum),
+    Address: str(record.address),
+    PathologyName: '',
+    CDNS: '',
+    DateRpt: formatDateVN(record.ngayKham),
+    Result: cleanReportField(result),
+    Conclusion: cleanReportField(conclusion),
+    Suggestion: cleanReportField(suggestion),
+    SessionId: str(record.sessionId),
+    FileNum: str(record.fileNum),
+    PacsViewURL: '',
+    PacsFileResultURL: '',
+    PacsAccessCode: '',
+  };
+  for (let i = 1; i <= 200; i += 1) payload[`Image${i}`] = '';
+  return new Proxy(payload, {
+    get(target, prop) {
+      if (typeof prop === 'string' && !(prop in target)) return '';
+      return target[prop];
+    },
+  });
+}
+
+async function normalizeTemplate(templatePath) {
+  if (path.extname(templatePath).toLowerCase() === '.doc') {
+    return convertDocToDocxCached(templatePath);
+  }
+  return templatePath;
+}
+
+async function renderRecordDocx(record, templatePath, segmentIndex, workDir) {
+  const templateDocx = await normalizeTemplate(templatePath);
+  const zip = new PizZip(await fs.promises.readFile(templateDocx, 'binary'));
+  const doc = new Docxtemplater(zip, {
+    delimiters: { start: '<<', end: '>>' },
+    linebreaks: true,
+    paragraphLoop: true,
+    nullGetter: () => '',
+  });
+  doc.render(buildPayload(record));
+  const out = path.join(workDir, `cdha_${record.imagingResultId}_${segmentIndex}.docx`);
+  await fs.promises.writeFile(out, doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
+  return out;
+}
+
+async function resolveRecordImages(record) {
+  const rows = await collectPathologyImages(record.imagingResultId, config.media.printedImagesOnly);
+  const resolved = [];
+  const missing = [];
+  for (const row of rows) {
+    const item = await resolveFile(row.filename, { subDir: 'pathology-images' });
+    if (item.found && (isEmbeddableImage(item.cachedPath) || isPdfFile(item.cachedPath))) {
+      resolved.push(item.cachedPath);
+    } else if (item.found) {
+      missing.push({ filename: row.filename, reason: 'unsupported_image_type', cachedPath: item.cachedPath });
+    } else {
+      missing.push({ filename: row.filename, reason: 'missing' });
+    }
+  }
+  return { files: resolved, missing };
+}
+
+async function fetchPacsPdf(url, workDir, index) {
+  if (!url) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.media.pacsFetchTimeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!contentType.includes('pdf') && buf.slice(0, 4).toString('latin1') !== '%PDF') {
+      throw new Error(`Response is not PDF: ${contentType || 'unknown content-type'}`);
+    }
+    const out = path.join(workDir, `pacs_${index}.pdf`);
+    await fs.promises.writeFile(out, buf);
+    logger.job('info', 'pacs pdf fetched', { url, out, bytes: buf.length });
+    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function collectPacsFiles(caseData, workDir) {
+  const files = [];
+  const skipped = [];
+  const seen = new Set();
+  const rows = (caseData && caseData.imaging) || [];
+  for (const row of rows) {
+    const url = String(row.pacsFileResultUrl || '').trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    try {
+      const file = await fetchPacsPdf(url, workDir, files.length);
+      if (file) files.push(file);
+    } catch (err) {
+      const item = { requestId: row.requestId, url, error: err.message };
+      skipped.push(item);
+      logger.job('warn', 'pacs pdf fetch failed', item);
+    }
+  }
+  return { files, skipped };
+}
+
+function cnFilesToMergeFiles(mediaSummary) {
+  const files = [];
+  const skipped = [];
+  for (const item of (mediaSummary && mediaSummary.cnFiles) || []) {
+    const candidates = [];
+    if (item.extracted && item.extracted.ok) candidates.push(...(item.extracted.files || []));
+    else if (item.cachedPath) candidates.push(item.cachedPath);
+
+    for (const file of candidates) {
+      if (isPdfFile(file) || isEmbeddableImage(file)) {
+        files.push(file);
+      } else {
+        skipped.push({
+          cnFileId: item.cnFile && item.cnFile.id,
+          file,
+          reason: 'unsupported_cn_file_type',
+        });
+      }
+    }
+  }
+  return { files, skipped };
+}
+
+async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData = null, mediaSummary = null }) {
+  if (process.platform !== 'win32') {
+    return { ok: false, reason: 'word_com_requires_windows' };
+  }
+  if (!fs.existsSync(config.paths.templates)) {
+    return { ok: false, reason: 'templates_dir_missing', templates: config.paths.templates };
+  }
+
+  const records = await collectImagingRenderRecords(fileNum, sessionId);
+  const workDir = path.join(config.paths.tmpDir, 'cdha-render', `${fileNum}_${sessionId || 'all'}_${Date.now()}`);
+  ensureDir(workDir);
+
+  const mergeInputs = [];
+  const skipped = [];
+  const imageStats = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    const templatePath = selectTemplate(config.paths.templates, record.templateFile, record.pathologyType, 0);
+    if (!templatePath) {
+      skipped.push({ imagingResultId: record.imagingResultId, reason: 'template_missing', templateFile: record.templateFile });
+      logger.job('warn', 'cdha template missing', skipped[skipped.length - 1]);
+      continue;
+    }
+
+    try {
+      logger.job('info', 'cdha render segment started', {
+        imagingResultId: record.imagingResultId,
+        templatePath,
+      });
+      const docxPath = await renderRecordDocx(record, templatePath, i, workDir);
+      const pdfPath = path.join(workDir, `cdha_${record.imagingResultId}_${i}.pdf`);
+      await convertDocxToPdf(docxPath, pdfPath);
+      if (fs.existsSync(pdfPath)) {
+        mergeInputs.push(pdfPath);
+        const images = await resolveRecordImages(record);
+        mergeInputs.push(...images.files);
+        imageStats.push({
+          imagingResultId: record.imagingResultId,
+          appendedImages: images.files.length,
+          missingImages: images.missing,
+        });
+        logger.job('info', 'cdha render segment completed', { imagingResultId: record.imagingResultId, pdfPath });
+      } else {
+        throw new Error(`Word did not create PDF: ${pdfPath}`);
+      }
+    } catch (err) {
+      const item = {
+        imagingResultId: record.imagingResultId,
+        templateFile: record.templateFile,
+        error: err.message,
+      };
+      skipped.push(item);
+      logger.job('error', 'cdha render segment failed', item);
+    }
+  }
+
+  const pacs = await collectPacsFiles(caseData, workDir);
+  mergeInputs.push(...pacs.files);
+
+  const cn = cnFilesToMergeFiles(mediaSummary);
+  mergeInputs.push(...cn.files);
+
+  if (!mergeInputs.length) {
+    return { ok: false, reason: 'no_template_segments_rendered', skipped };
+  }
+
+  ensureDir(path.dirname(outputPath));
+  const merge = await mergeFilesToPdf(mergeInputs, outputPath, { withDetails: true });
+  return {
+    ok: true,
+    outputPath,
+    segmentCount: records.length - skipped.length,
+    appendedImagePages: imageStats.reduce((sum, item) => sum + item.appendedImages, 0),
+    appendedPacsPdfs: pacs.files.length,
+    appendedCnFiles: cn.files.length,
+    skipped: skipped.concat(pacs.skipped, cn.skipped, merge.skipped || []),
+    imageStats,
+    workDir,
+  };
+}
+
+module.exports = {
+  renderCdhaTemplatePdf,
+  buildPayload,
+};

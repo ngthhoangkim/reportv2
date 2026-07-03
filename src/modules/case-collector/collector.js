@@ -149,6 +149,96 @@ async function collectImaging(fileNum, sessionId = null) {
   }));
 }
 
+async function collectImagingRenderRecords(fileNum, sessionId = null) {
+  const rows = await db.query(
+    `
+    SELECT
+      v.FileNum,
+      v.SessionId,
+      v.PatientName,
+      v.Dob,
+      v.Sex AS Gender,
+      v.Street AS Address,
+      r.Conclusion,
+      v.Doctor,
+      r.DoctorId,
+      v.RequestedDoctor,
+      r.CreatedDate AS NgayKham,
+      r.FileName,
+      r.RequestId,
+      r.Id AS ImagingResultId,
+      r.SampleNumber,
+      d.ResultData,
+      d.ConclusionData,
+      d.SuggestionData,
+      r.TemplateFile,
+      r.PathologyType
+    FROM dbo.CN_ImagingResult r WITH (NOLOCK)
+    INNER JOIN dbo.CN_ImagingResultData d WITH (NOLOCK) ON r.Id = d.ImagingResultId
+    INNER JOIN dbo.ViewImagingResult v WITH (NOLOCK) ON v.Id = r.Id
+    WHERE r.DeletedDate IS NULL
+      AND LTRIM(RTRIM(CONVERT(VARCHAR(50), v.FileNum))) = LTRIM(RTRIM(@fileNum))
+      ${sessionPredicate('v', sessionId)}
+    ORDER BY r.CreatedDate ASC, r.Id ASC
+    `,
+    { fileNum, sessionId },
+  );
+  return rows.map((row) => {
+    const sample = row.SampleNumber != null ? String(row.SampleNumber).trim() : '';
+    const file = row.FileNum != null ? String(row.FileNum).trim() : '';
+    return {
+      fileNum: file,
+      sessionId: numOrNull(row.SessionId),
+      sampleNumber: sample,
+      itemNum: sample || file,
+      patientName: row.PatientName || '',
+      dob: row.Dob || null,
+      gender: row.Gender || '',
+      address: row.Address || '',
+      conclusion: row.Conclusion || '',
+      doctor: row.Doctor || '',
+      doctorId: numOrNull(row.DoctorId),
+      requestedDoctor: row.RequestedDoctor || '',
+      ngayKham: row.NgayKham || null,
+      fileName: row.FileName || '',
+      requestId: numOrNull(row.RequestId),
+      imagingResultId: numOrNull(row.ImagingResultId),
+      resultData: row.ResultData,
+      conclusionData: row.ConclusionData,
+      suggestionData: row.SuggestionData,
+      templateFile: row.TemplateFile || '',
+      pathologyType: numOrNull(row.PathologyType) || 0,
+      doctorQualification: '',
+    };
+  });
+}
+
+async function collectPathologyImages(resultId, printedOnly = true) {
+  const rows = await db.query(
+    `
+    SELECT
+      ID,
+      ResultId,
+      Filename,
+      Printed,
+      CreatedDate
+    FROM dbo.CN_PathologyImage WITH (NOLOCK)
+    WHERE ResultId = @resultId
+      AND DeletedDate IS NULL
+      ${printedOnly ? 'AND Printed = 1' : ''}
+    ORDER BY CreatedDate ASC, ID ASC
+    `,
+    { resultId },
+  );
+  return rows.map((row) => ({
+    id: numOrNull(row.ID),
+    resultId: numOrNull(row.ResultId),
+    filename: row.Filename || '',
+    printed: Boolean(row.Printed),
+    createdDate: mapDate(row.CreatedDate),
+  })).filter((row) => row.filename);
+}
+
 async function collectCnFiles(fileNum, sessionId = null) {
   const rows = await db.query(
     `
@@ -299,6 +389,8 @@ module.exports = {
   collectCase,
   collectPatients,
   collectImaging,
+  collectImagingRenderRecords,
+  collectPathologyImages,
   collectCnFiles,
   collectLabs,
   collectPrescriptions,
