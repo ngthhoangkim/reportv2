@@ -52,10 +52,9 @@ npm run backfill -- --failed-only --force --upload
 
 CDHA giữ đúng quy tắc v1 để upload S3 overwrite file cũ:
 
-- Ưu tiên `resultFileName` nếu API/body truyền vào.
-- Nếu không có, lấy `CN_ImagingResult.FileName` của dòng mới nhất trong session.
-- Sanitize ký tự không hợp lệ rồi thêm `.pdf`.
-- Fallback cuối cùng: `{fileNum}_{sessionId}.pdf`.
+- Mặc định tạo từng file theo từng dòng `CN_ImagingResult.FileName`.
+- Ví dụ mỗi item CDHA sẽ upload thành `khambenh/{FileName}.pdf`.
+- Flow tổng session chỉ dùng khi truyền `mode=session`.
 
 Toa thuốc v1 upload vào `khambenh/toathuoc/` với tên `{sessionId}.pdf`.
 

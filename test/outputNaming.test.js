@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   resolveCdhaPdfFileName,
+  resolveCdhaRecordPdfFileName,
   resolvePrescriptionUploadName,
   normalizePrescriptionPrefix,
 } = require('../src/modules/report-renderer/outputNaming');
@@ -21,6 +22,10 @@ test('CDHA output name follows v1 latest imaging FileName rule', () => {
 test('CDHA output name supports explicit v1 override', () => {
   const name = resolveCdhaPdfFileName({ fileNum: '1', sessionId: 2, imaging: [] }, 'ABC.pdf');
   assert.equal(name, 'ABC.pdf');
+});
+
+test('CDHA item output name follows each imaging FileName', () => {
+  assert.equal(resolveCdhaRecordPdfFileName({ fileName: '20260522075119490221254' }), '20260522075119490221254.pdf');
 });
 
 test('prescription S3 upload naming follows v1', () => {

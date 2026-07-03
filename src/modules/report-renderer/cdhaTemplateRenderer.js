@@ -11,6 +11,7 @@ const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/
 const { rtfBufferToPlain } = require('./rtfPlain');
 const { selectTemplate } = require('./templateSelector');
 const { mergeFilesToPdf, isPdfFile, isEmbeddableImage } = require('./pdfMerge');
+const { resolveCdhaRecordPdfFileName } = require('./outputNaming');
 
 function str(value) {
   if (value == null) return '';
@@ -105,6 +106,47 @@ async function renderRecordDocx(record, templatePath, segmentIndex, workDir) {
   const out = path.join(workDir, `cdha_${record.imagingResultId}_${segmentIndex}.docx`);
   await fs.promises.writeFile(out, doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
   return out;
+}
+
+async function renderRecordPdfSegment(record, segmentIndex, workDir) {
+  const templatePath = selectTemplate(config.paths.templates, record.templateFile, record.pathologyType, 0);
+  if (!templatePath) {
+    return {
+      ok: false,
+      skipped: {
+        imagingResultId: record.imagingResultId,
+        reason: 'template_missing',
+        templateFile: record.templateFile,
+      },
+    };
+  }
+
+  logger.job('info', 'cdha render item started', {
+    imagingResultId: record.imagingResultId,
+    fileName: record.fileName,
+    serviceName: record.serviceName,
+    templatePath,
+  });
+
+  const docxPath = await renderRecordDocx(record, templatePath, segmentIndex, workDir);
+  const pdfPath = path.join(workDir, `cdha_${record.imagingResultId}_${segmentIndex}.pdf`);
+  await convertDocxToPdf(docxPath, pdfPath);
+  if (!fs.existsSync(pdfPath)) {
+    throw new Error(`Word did not create PDF: ${pdfPath}`);
+  }
+
+  const images = await resolveRecordImages(record);
+  return {
+    ok: true,
+    pdfPath,
+    imageFiles: images.files,
+    imageStats: {
+      imagingResultId: record.imagingResultId,
+      appendedImages: images.files.length,
+      missingImages: images.missing,
+    },
+    templatePath,
+  };
 }
 
 async function resolveRecordImages(record) {
@@ -206,34 +248,16 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
   const imageStats = [];
   for (let i = 0; i < records.length; i += 1) {
     const record = records[i];
-    const templatePath = selectTemplate(config.paths.templates, record.templateFile, record.pathologyType, 0);
-    if (!templatePath) {
-      skipped.push({ imagingResultId: record.imagingResultId, reason: 'template_missing', templateFile: record.templateFile });
-      logger.job('warn', 'cdha template missing', skipped[skipped.length - 1]);
-      continue;
-    }
-
     try {
-      logger.job('info', 'cdha render segment started', {
-        imagingResultId: record.imagingResultId,
-        templatePath,
-      });
-      const docxPath = await renderRecordDocx(record, templatePath, i, workDir);
-      const pdfPath = path.join(workDir, `cdha_${record.imagingResultId}_${i}.pdf`);
-      await convertDocxToPdf(docxPath, pdfPath);
-      if (fs.existsSync(pdfPath)) {
-        mergeInputs.push(pdfPath);
-        const images = await resolveRecordImages(record);
-        mergeInputs.push(...images.files);
-        imageStats.push({
-          imagingResultId: record.imagingResultId,
-          appendedImages: images.files.length,
-          missingImages: images.missing,
-        });
-        logger.job('info', 'cdha render segment completed', { imagingResultId: record.imagingResultId, pdfPath });
-      } else {
-        throw new Error(`Word did not create PDF: ${pdfPath}`);
+      const rendered = await renderRecordPdfSegment(record, i, workDir);
+      if (!rendered.ok) {
+        skipped.push(rendered.skipped);
+        logger.job('warn', 'cdha template missing', rendered.skipped);
+        continue;
       }
+      mergeInputs.push(rendered.pdfPath, ...rendered.imageFiles);
+      imageStats.push(rendered.imageStats);
+      logger.job('info', 'cdha render segment completed', { imagingResultId: record.imagingResultId, pdfPath: rendered.pdfPath });
     } catch (err) {
       const item = {
         imagingResultId: record.imagingResultId,
@@ -270,7 +294,86 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
   };
 }
 
+async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir }) {
+  if (process.platform !== 'win32') {
+    return { ok: false, reason: 'word_com_requires_windows', files: [], skipped: [] };
+  }
+  if (!fs.existsSync(config.paths.templates)) {
+    return { ok: false, reason: 'templates_dir_missing', templates: config.paths.templates, files: [], skipped: [] };
+  }
+
+  const records = await collectImagingRenderRecords(fileNum, sessionId);
+  const workDir = path.join(config.paths.tmpDir, 'cdha-items', `${fileNum}_${sessionId || 'all'}_${Date.now()}`);
+  ensureDir(workDir);
+  ensureDir(outputDir);
+
+  const files = [];
+  const skipped = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    if (!record.fileName || !String(record.fileName).trim()) {
+      const item = {
+        imagingResultId: record.imagingResultId,
+        serviceName: record.serviceName,
+        reason: 'missing_file_name',
+      };
+      skipped.push(item);
+      logger.job('warn', 'cdha item skipped', item);
+      continue;
+    }
+
+    const fileName = resolveCdhaRecordPdfFileName(record);
+    const outputPath = path.join(outputDir, fileName);
+    try {
+      const rendered = await renderRecordPdfSegment(record, i, workDir);
+      if (!rendered.ok) {
+        skipped.push(rendered.skipped);
+        logger.job('warn', 'cdha item skipped', rendered.skipped);
+        continue;
+      }
+
+      const merge = await mergeFilesToPdf(
+        [rendered.pdfPath, ...rendered.imageFiles],
+        outputPath,
+        { withDetails: true },
+      );
+      const stat = fs.statSync(outputPath);
+      const out = {
+        imagingResultId: record.imagingResultId,
+        requestId: record.requestId,
+        serviceName: record.serviceName,
+        fileName,
+        resultFileName: fileName.replace(/\.pdf$/i, ''),
+        pdfPath: outputPath,
+        bytes: stat.size,
+        appendedImagePages: rendered.imageFiles.length,
+        mergeSkipped: merge.skipped || [],
+      };
+      files.push(out);
+      logger.job('info', 'cdha item completed', out);
+    } catch (err) {
+      const item = {
+        imagingResultId: record.imagingResultId,
+        fileName,
+        serviceName: record.serviceName,
+        error: err.message,
+      };
+      skipped.push(item);
+      logger.job('error', 'cdha item failed', item);
+    }
+  }
+
+  return {
+    ok: files.length > 0,
+    renderer: 'cdha-item-template-word-com',
+    files,
+    skipped,
+    workDir,
+  };
+}
+
 module.exports = {
   renderCdhaTemplatePdf,
+  renderCdhaItemPdfs,
   buildPayload,
 };

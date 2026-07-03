@@ -10,7 +10,7 @@ const { config } = require('../../config/env');
 const { drawSummaryPdf } = require('./pdfSummary');
 const { renderTemplateToPdf, buildTemplateData } = require('./docxTemplate');
 const { resolveCdhaPdfFileName } = require('./outputNaming');
-const { renderCdhaTemplatePdf } = require('./cdhaTemplateRenderer');
+const { renderCdhaTemplatePdf, renderCdhaItemPdfs } = require('./cdhaTemplateRenderer');
 
 function snapshotKey(fileNum, sessionId) {
   return `${String(fileNum).trim()}::${sessionId == null || sessionId === '' ? 'all' : Number(sessionId)}`;
@@ -37,8 +37,52 @@ async function generateReport(options) {
     return { skipped: true, reason: 'source_hash_unchanged', fileNum, sessionId, sourceHash: caseData.sourceHash };
   }
 
-  const mediaSummary = await resolveCaseMedia(caseData);
   ensureDir(config.paths.output);
+  const mode = String(options.mode || 'items').toLowerCase();
+  if (mode !== 'session') {
+    const renderedItems = await renderCdhaItemPdfs({
+      fileNum,
+      sessionId,
+      outputDir: config.paths.output,
+    });
+
+    let uploads = [];
+    if (options.upload) {
+      uploads = [];
+      for (const file of renderedItems.files || []) {
+        uploads.push({ fileName: file.fileName, result: await uploadPdf(file.pdfPath) });
+      }
+    }
+
+    const job = {
+      fileNum,
+      sessionId,
+      sourceHash: caseData.sourceHash,
+      renderer: renderedItems.renderer || 'cdha-item-template-word-com',
+      files: renderedItems.files || [],
+      skippedItems: renderedItems.skipped || [],
+      generatedCount: (renderedItems.files || []).length,
+      skippedCount: (renderedItems.skipped || []).length,
+      startedAt,
+      completedAt: new Date().toISOString(),
+    };
+    state.appendJsonl('generated-files.jsonl', job);
+    state.setSnapshot(key, {
+      status: 'generated',
+      sourceHash: caseData.sourceHash,
+      files: job.files.map((f) => ({ fileName: f.fileName, pdfPath: f.pdfPath, bytes: f.bytes })),
+      sourceSnapshot: caseData.sourceSnapshot,
+    });
+    logger.job('info', 'generate items completed', {
+      fileNum,
+      sessionId,
+      generatedCount: job.generatedCount,
+      skippedCount: job.skippedCount,
+    });
+    return { ok: renderedItems.ok, ...job, upload: uploads.length ? uploads : null };
+  }
+
+  const mediaSummary = await resolveCaseMedia(caseData);
   const finalName = resolveCdhaPdfFileName(caseData, options.resultFileName);
   const pdfPath = path.join(config.paths.output, finalName);
   const templateData = buildTemplateData(caseData, mediaSummary);

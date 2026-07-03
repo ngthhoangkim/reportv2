@@ -68,6 +68,7 @@ async function runBackfill(options) {
       fileNum: item.fileNum,
       sessionId: item.sessionId,
       resultFileName: options.resultFileName,
+      mode: options.mode,
       force: Boolean(options.force),
       upload: Boolean(options.upload),
     }));

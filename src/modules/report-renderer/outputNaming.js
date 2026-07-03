@@ -25,6 +25,11 @@ function resolveCdhaPdfFileName(caseData, explicitOverride) {
   return `${resolveCdhaPdfBaseName(caseData, explicitOverride)}.pdf`;
 }
 
+function resolveCdhaRecordPdfFileName(record) {
+  const base = sanitizePdfBase(record && record.fileName);
+  return `${base}.pdf`;
+}
+
 function resolvePrescriptionUploadName(sessionId) {
   return `${String(sessionId)}.pdf`;
 }
@@ -37,6 +42,7 @@ module.exports = {
   sanitizePdfBase,
   resolveCdhaPdfBaseName,
   resolveCdhaPdfFileName,
+  resolveCdhaRecordPdfFileName,
   resolvePrescriptionUploadName,
   normalizePrescriptionPrefix,
 };

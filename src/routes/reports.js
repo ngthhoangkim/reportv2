@@ -9,6 +9,7 @@ router.post('/api/reports/generate', async (req, res) => {
     fileNum: req.body.fileNum,
     sessionId: req.body.sessionId,
     resultFileName: req.body.resultFileName,
+    mode: req.body.mode,
     force: Boolean(req.body.force),
     upload: Boolean(req.body.upload),
   });
