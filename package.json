@@ -1,0 +1,34 @@
+{
+  "name": "reportv2",
+  "version": "1.0.0",
+  "description": "Read-only SQL Server medical report generator for Windows Word COM",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "backfill": "node src/scripts/backfill.js",
+    "service:install": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/install-task.ps1",
+    "service:start": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/start-hidden.ps1",
+    "service:stop": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/stop-task.ps1",
+    "service:status": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/status-task.ps1",
+    "service:logs": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/tail-logs.ps1",
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": [
+    "medical-report",
+    "sql-server",
+    "word-com",
+    "read-only"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "docxtemplater": "^3.68.3",
+    "dotenv": "^16.3.1",
+    "express": "^5.2.1",
+    "mssql": "^9.1.1",
+    "pdf-lib": "^1.17.1",
+    "pizzip": "^3.2.0"
+  }
+}
