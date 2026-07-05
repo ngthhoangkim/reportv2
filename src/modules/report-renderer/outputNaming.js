@@ -30,8 +30,14 @@ function resolveCdhaRecordPdfFileName(record) {
   return `${base}.pdf`;
 }
 
-function resolvePrescriptionUploadName(sessionId) {
-  return `${String(sessionId)}.pdf`;
+function resolvePrescriptionUploadName(progressId) {
+  return `${String(progressId)}.pdf`;
+}
+
+function resolveCnFilePdfFileName(fileName) {
+  const raw = String(fileName || '').trim();
+  const base = raw.replace(/\.[^.\\/]+$/i, '');
+  return `${sanitizePdfBase(base)}.pdf`;
 }
 
 function normalizePrescriptionPrefix() {
@@ -43,6 +49,7 @@ module.exports = {
   resolveCdhaPdfBaseName,
   resolveCdhaPdfFileName,
   resolveCdhaRecordPdfFileName,
+  resolveCnFilePdfFileName,
   resolvePrescriptionUploadName,
   normalizePrescriptionPrefix,
 };

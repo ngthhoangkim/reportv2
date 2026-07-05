@@ -7,6 +7,8 @@
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "backfill": "node src/scripts/backfill.js",
+    "backfill:prescriptions": "node src/scripts/backfillPrescriptions.js",
+    "generate:prescription": "node src/scripts/generatePrescription.js",
     "service:install": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/install-task.ps1",
     "service:start": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/start-hidden.ps1",
     "service:stop": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/stop-task.ps1",

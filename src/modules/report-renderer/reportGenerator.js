@@ -11,6 +11,7 @@ const { drawSummaryPdf } = require('./pdfSummary');
 const { renderTemplateToPdf, buildTemplateData } = require('./docxTemplate');
 const { resolveCdhaPdfFileName } = require('./outputNaming');
 const { renderCdhaTemplatePdf, renderCdhaItemPdfs } = require('./cdhaTemplateRenderer');
+const { renderCnFiles } = require('./cnFilesRenderer');
 
 function snapshotKey(fileNum, sessionId) {
   return `${String(fileNum).trim()}::${sessionId == null || sessionId === '' ? 'all' : Number(sessionId)}`;
@@ -45,11 +46,21 @@ async function generateReport(options) {
       sessionId,
       outputDir: config.paths.output,
     });
+    const renderedCnFiles = config.media.generateCnFiles
+      ? await renderCnFiles({
+        caseData,
+        outputDir: config.paths.output,
+        includeHistory: Boolean(options.includeHistory),
+      })
+      : { files: [], skipped: [] };
 
     let uploads = [];
     if (options.upload) {
       uploads = [];
       for (const file of renderedItems.files || []) {
+        uploads.push({ fileName: file.fileName, result: await uploadPdf(file.pdfPath) });
+      }
+      for (const file of renderedCnFiles.files || []) {
         uploads.push({ fileName: file.fileName, result: await uploadPdf(file.pdfPath) });
       }
     }
@@ -60,9 +71,13 @@ async function generateReport(options) {
       sourceHash: caseData.sourceHash,
       renderer: renderedItems.renderer || 'cdha-item-template-word-com',
       files: renderedItems.files || [],
+      cnFiles: renderedCnFiles.files || [],
       skippedItems: renderedItems.skipped || [],
+      skippedCnFiles: renderedCnFiles.skipped || [],
       generatedCount: (renderedItems.files || []).length,
+      generatedCnFilesCount: (renderedCnFiles.files || []).length,
       skippedCount: (renderedItems.skipped || []).length,
+      skippedCnFilesCount: (renderedCnFiles.skipped || []).length,
       startedAt,
       completedAt: new Date().toISOString(),
     };
@@ -70,14 +85,16 @@ async function generateReport(options) {
     state.setSnapshot(key, {
       status: 'generated',
       sourceHash: caseData.sourceHash,
-      files: job.files.map((f) => ({ fileName: f.fileName, pdfPath: f.pdfPath, bytes: f.bytes })),
+      files: job.files.concat(job.cnFiles).map((f) => ({ fileName: f.fileName, pdfPath: f.pdfPath, bytes: f.bytes })),
       sourceSnapshot: caseData.sourceSnapshot,
     });
     logger.job('info', 'generate items completed', {
       fileNum,
       sessionId,
       generatedCount: job.generatedCount,
+      generatedCnFilesCount: job.generatedCnFilesCount,
       skippedCount: job.skippedCount,
+      skippedCnFilesCount: job.skippedCnFilesCount,
     });
     return { ok: renderedItems.ok, ...job, upload: uploads.length ? uploads : null };
   }

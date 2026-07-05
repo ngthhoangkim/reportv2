@@ -5,4 +5,6 @@ tmp/
 output/
 data/state/
 Documents/
-Templates/
+Templates/*
+!Templates/ToaThuocV2/
+!Templates/ToaThuocV2/**

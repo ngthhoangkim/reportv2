@@ -1,34 +1,32 @@
 const express = require('express');
-const { generateReportSafe } = require('../modules/report-renderer/reportGenerator');
-const { runBackfill } = require('../scripts/backfillRunner');
+const { generatePrescriptionsSafe } = require('../modules/prescription/prescriptionGenerator');
+const { runPrescriptionBackfill } = require('../scripts/backfillPrescriptionsRunner');
 
 const router = express.Router();
 
-router.post('/api/reports/generate', async (req, res) => {
-  const result = await generateReportSafe({
+router.post('/api/prescriptions/generate', async (req, res) => {
+  const result = await generatePrescriptionsSafe({
     fileNum: req.body.fileNum,
     sessionId: req.body.sessionId,
-    resultFileName: req.body.resultFileName,
-    mode: req.body.mode,
-    includeHistory: Boolean(req.body.includeHistory),
-    force: Boolean(req.body.force),
+    progressId: req.body.progressId,
     upload: Boolean(req.body.upload),
+    force: Boolean(req.body.force),
   });
   res.status(result.ok === false ? 500 : 200).json(result);
 });
 
-router.post('/api/backfill', async (req, res) => {
-  const result = await runBackfill({
+router.post('/api/prescriptions/backfill', async (req, res) => {
+  const result = await runPrescriptionBackfill({
     date: req.body.date,
     from: req.body.from,
     to: req.body.to,
     fileNum: req.body.fileNum,
     sessionId: req.body.sessionId,
+    progressId: req.body.progressId,
     dryRun: Boolean(req.body.dryRun),
     force: Boolean(req.body.force),
     failedOnly: Boolean(req.body.failedOnly),
     upload: Boolean(req.body.upload),
-    types: req.body.types,
   });
   res.status(result.ok === false ? 500 : 200).json(result);
 });

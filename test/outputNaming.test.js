@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   resolveCdhaPdfFileName,
   resolveCdhaRecordPdfFileName,
+  resolveCnFilePdfFileName,
   resolvePrescriptionUploadName,
   normalizePrescriptionPrefix,
 } = require('../src/modules/report-renderer/outputNaming');
@@ -28,7 +29,11 @@ test('CDHA item output name follows each imaging FileName', () => {
   assert.equal(resolveCdhaRecordPdfFileName({ fileName: '20260522075119490221254' }), '20260522075119490221254.pdf');
 });
 
-test('prescription S3 upload naming follows v1', () => {
+test('prescription S3 upload naming uses ProgressId per toa', () => {
   assert.equal(normalizePrescriptionPrefix(), 'khambenh/toathuoc/');
-  assert.equal(resolvePrescriptionUploadName(855699), '855699.pdf');
+  assert.equal(resolvePrescriptionUploadName(539910), '539910.pdf');
+});
+
+test('CN_FILES output uses table file basename with pdf extension', () => {
+  assert.equal(resolveCnFilePdfFileName('Doc260522082233560.zip'), 'Doc260522082233560.pdf');
 });

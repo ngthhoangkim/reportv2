@@ -68,6 +68,14 @@ const config = {
   media: {
     printedImagesOnly: envBool('PRINTED_IMAGES_ONLY', true),
     pacsFetchTimeoutMs: envNumber('PACS_FETCH_TIMEOUT_MS', 45000),
+    generateCnFiles: envBool('GENERATE_CN_FILES', true),
+    includeCnFilesHistory: envBool('INCLUDE_CN_FILES_HISTORY', false),
+  },
+  prescription: {
+    templateFront: resolvePath('PRESCRIPTION_TEMPLATE_FRONT', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_1.docx')),
+    templateBack: resolvePath('PRESCRIPTION_TEMPLATE_BACK', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_2.docx')),
+    outputDir: resolvePath('PRESCRIPTION_OUTPUT_DIR', path.join(process.cwd(), 'output', 'prescriptions')),
+    s3Prefix: envString('PRESCRIPTION_S3_PREFIX', 'khambenh/toathuoc/'),
   },
   archives: {
     passwords: envString('CN_FILES_ZIP_PASSWORDS', envString('CN_FILES_ZIP_PASSWORD', ''))

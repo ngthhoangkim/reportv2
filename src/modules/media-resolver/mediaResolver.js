@@ -6,6 +6,7 @@ const { ensureDir } = require('../../config/paths');
 const logger = require('../logging/logger');
 
 const IMAGE_EXTENSIONS = new Set(['.bmp', '.gif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp']);
+const V1_EXTRACT_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']);
 const PROBE_EXTENSIONS = ['', '.zip', '.ZIP', '.pdf', '.PDF', '.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG', '.bmp', '.BMP'];
 const IMAGE_PROBE_EXTENSIONS = [
   '',
@@ -158,6 +159,69 @@ async function extractZip(zipPath, outputSubDir = 'zip') {
   return { ok: false, error: message };
 }
 
+async function extractImagesFromZipV1(zipPath, extractToDirectory, passwords = config.archives.passwords) {
+  ensureDir(extractToDirectory);
+  const passList = ['', ...(passwords || [])];
+  let lastError = null;
+  for (const password of passList) {
+    try {
+      const zip = new AdmZip(zipPath);
+      const extractedFiles = [];
+      for (const entry of zip.getEntries()) {
+        if (entry.isDirectory) continue;
+        const nameOnly = path.basename(entry.entryName);
+        const ext = path.extname(nameOnly).toLowerCase();
+        if (!V1_EXTRACT_IMAGE_EXTENSIONS.has(ext)) continue;
+        const destinationPath = path.join(extractToDirectory, cleanFileName(nameOnly));
+        const data = password ? entry.getData(password) : entry.getData();
+        fs.writeFileSync(destinationPath, data);
+        extractedFiles.push(destinationPath);
+      }
+      logger.job('info', 'zip images extracted v1-style', {
+        zipPath,
+        outputDir: extractToDirectory,
+        fileCount: extractedFiles.length,
+        usedPassword: Boolean(password),
+      });
+      return { ok: true, outputDir: extractToDirectory, files: extractedFiles, usedPassword: Boolean(password) };
+    } catch (err) {
+      lastError = err;
+      const msg = String(err && err.message ? err.message : err);
+      if (password && /aes|encrypted|bad password|invalid password|wrong password/i.test(msg)) {
+        logger.job('warn', 'zip image password attempt failed', { zipPath, usedPassword: Boolean(password), error: msg });
+      }
+    }
+  }
+
+  const message = lastError && lastError.message ? lastError.message : 'Cannot extract zip images';
+  logger.job('error', 'zip image extract failed', { zipPath, error: message });
+  return { ok: false, outputDir: extractToDirectory, files: [], error: message };
+}
+
+async function extractImagesFromArchiveOrRawV1(filePath, extractToDirectory, passwords = config.archives.passwords) {
+  if (!fileExists(filePath)) {
+    throw new Error(`Media file not found: ${filePath}`);
+  }
+  ensureDir(extractToDirectory);
+  const magic = readMagic(filePath, 16);
+  if (magic.length && magic.every((b) => b === 0)) {
+    throw new Error('File is all zeros (invalid). Replace with real ZIP or JPEG/PNG export.');
+  }
+  if (isZipMagic(magic)) {
+    return extractImagesFromZipV1(filePath, extractToDirectory, passwords);
+  }
+  if (isJpegMagic(magic) || isPngMagic(magic)) {
+    const base = path.basename(filePath);
+    let ext = path.extname(base).toLowerCase();
+    if (!ext) ext = isPngMagic(magic) ? '.png' : '.jpg';
+    const destName = path.extname(base) ? base : `${base}${ext}`;
+    const dest = path.join(extractToDirectory, cleanFileName(destName));
+    fs.copyFileSync(filePath, dest);
+    return { ok: true, outputDir: extractToDirectory, files: [dest], usedPassword: false };
+  }
+  throw new Error(`Unsupported media (need ZIP or JPEG/PNG): ${filePath}`);
+}
+
 async function listFiles(dir) {
   const result = [];
   if (!fs.existsSync(dir)) return result;
@@ -204,6 +268,8 @@ module.exports = {
   resolveCnFile,
   resolveCaseMedia,
   extractZip,
+  extractImagesFromZipV1,
+  extractImagesFromArchiveOrRawV1,
   listFiles,
   isImageFile,
   readMagic,

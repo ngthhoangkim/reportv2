@@ -1,5 +1,6 @@
 const { collectCandidatesSince } = require('../modules/worker/candidateCollector');
 const { generateReportSafe } = require('../modules/report-renderer/reportGenerator');
+const { generatePrescriptionsSafe } = require('../modules/prescription/prescriptionGenerator');
 const state = require('../modules/state/stateStore');
 const logger = require('../modules/logging/logger');
 
@@ -23,7 +24,12 @@ async function candidatesForRange(from, to, types) {
 function failedCandidates() {
   return state.readJsonlRecent('failed-jobs.jsonl', 1000)
     .filter((item) => item.fileNum)
-    .map((item) => ({ fileNum: item.fileNum, sessionId: item.sessionId == null ? null : Number(item.sessionId), source: 'failed' }));
+    .map((item) => ({
+      fileNum: item.fileNum,
+      sessionId: item.sessionId == null ? null : Number(item.sessionId),
+      progressId: item.progressId == null ? null : Number(item.progressId),
+      source: item.type === 'prescription' ? 'prescription' : 'failed',
+    }));
 }
 
 async function runBackfill(options) {
@@ -52,7 +58,9 @@ async function runBackfill(options) {
 
   const unique = new Map();
   for (const c of candidates) {
-    const key = `${c.fileNum}::${c.sessionId == null ? 'all' : c.sessionId}`;
+    const key = c.source === 'prescription'
+      ? `${c.source}::${c.fileNum}::${c.sessionId == null ? 'all' : c.sessionId}::${c.progressId == null ? 'all' : c.progressId}`
+      : `${c.fileNum}::${c.sessionId == null ? 'all' : c.sessionId}`;
     unique.set(key, c);
   }
   const list = Array.from(unique.values());
@@ -64,14 +72,24 @@ async function runBackfill(options) {
 
   const results = [];
   for (const item of list) {
-    results.push(await generateReportSafe({
-      fileNum: item.fileNum,
-      sessionId: item.sessionId,
-      resultFileName: options.resultFileName,
-      mode: options.mode,
-      force: Boolean(options.force),
-      upload: Boolean(options.upload),
-    }));
+    if (item.source === 'prescription') {
+      results.push(await generatePrescriptionsSafe({
+        fileNum: item.fileNum,
+        sessionId: item.sessionId,
+        progressId: item.progressId,
+        force: Boolean(options.force),
+        upload: Boolean(options.upload),
+      }));
+    } else {
+      results.push(await generateReportSafe({
+        fileNum: item.fileNum,
+        sessionId: item.sessionId,
+        resultFileName: options.resultFileName,
+        mode: options.mode,
+        force: Boolean(options.force),
+        upload: Boolean(options.upload),
+      }));
+    }
   }
   return { ok: true, count: results.length, results };
 }

@@ -2,6 +2,7 @@ const { config } = require('../../config/env');
 const logger = require('../logging/logger');
 const { collectCandidatesSince } = require('./candidateCollector');
 const { generateReportSafe } = require('../report-renderer/reportGenerator');
+const { generatePrescriptionsSafe } = require('../prescription/prescriptionGenerator');
 
 class Worker {
   constructor() {
@@ -36,12 +37,22 @@ class Worker {
       const candidates = await collectCandidatesSince(fromDate);
       logger.worker('info', 'worker candidates collected', { count: candidates.length, fromDate: fromDate.toISOString() });
       for (const candidate of candidates) {
-        await generateReportSafe({
-          fileNum: candidate.fileNum,
-          sessionId: candidate.sessionId,
-          upload: true,
-          force: false,
-        });
+        if (candidate.source === 'prescription') {
+          await generatePrescriptionsSafe({
+            fileNum: candidate.fileNum,
+            sessionId: candidate.sessionId,
+            progressId: candidate.progressId,
+            upload: true,
+            force: false,
+          });
+        } else {
+          await generateReportSafe({
+            fileNum: candidate.fileNum,
+            sessionId: candidate.sessionId,
+            upload: true,
+            force: false,
+          });
+        }
       }
     } catch (err) {
       logger.worker('error', 'worker tick failed', { error: err.message, stack: err.stack });

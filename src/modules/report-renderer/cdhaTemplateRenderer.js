@@ -8,12 +8,7 @@ const logger = require('../logging/logger');
 const { collectImagingRenderRecords, collectPathologyImages } = require('../case-collector/collector');
 const {
   resolveFile,
-  extractZip,
-  listFiles,
-  readMagic,
-  isZipMagic,
-  isJpegMagic,
-  isPngMagic,
+  extractImagesFromArchiveOrRawV1,
 } = require('../media-resolver/mediaResolver');
 const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/wordConverter');
 const { rtfBufferToPlain } = require('./rtfPlain');
@@ -143,7 +138,7 @@ async function renderRecordPdfSegment(record, segmentIndex, workDir) {
     throw new Error(`Word did not create PDF: ${pdfPath}`);
   }
 
-  const images = await resolveRecordImages(record);
+  const images = await resolveRecordImages(record, workDir, segmentIndex);
   return {
     ok: true,
     pdfPath,
@@ -157,9 +152,9 @@ async function renderRecordPdfSegment(record, segmentIndex, workDir) {
   };
 }
 
-async function resolveRecordImages(record) {
+async function resolveRecordImages(record, workDir, segmentIndex) {
   const rows = await collectPathologyImages(record.imagingResultId, config.media.printedImagesOnly);
-  const archiveFiles = await resolveRecordArchiveFiles(record);
+  const archiveFiles = await resolveRecordArchiveFiles(record, workDir, segmentIndex);
   const resolved = [];
   const missing = [];
   for (const row of rows) {
@@ -189,39 +184,23 @@ async function resolveRecordImages(record) {
   return { files: resolved, missing };
 }
 
-async function resolveRecordArchiveFiles(record) {
+async function resolveRecordArchiveFiles(record, workDir, segmentIndex) {
   const files = [];
   if (!record.fileName || !String(record.fileName).trim()) return files;
   const archive = await resolveFile(record.fileName, { subDir: 'cdha-archives' });
   if (!archive.found) return files;
 
-  const ext = path.extname(archive.cachedPath).toLowerCase();
-  const magic = readMagic(archive.cachedPath);
-  if (ext === '.zip' || isZipMagic(magic)) {
-    const extracted = await extractZip(
-      archive.cachedPath,
-      `cdha-${record.imagingResultId || record.fileName}`,
-    );
-    if (extracted.ok) {
-      files.push(...(extracted.files || []));
-    }
-    return files;
-  }
-
-  if (isEmbeddableImage(archive.cachedPath) || isPdfFile(archive.cachedPath)) {
-    files.push(archive.cachedPath);
-  } else if (isJpegMagic(magic) || isPngMagic(magic)) {
-    const extFromMagic = isPngMagic(magic) ? '.png' : '.jpg';
-    const target = path.join(
-      config.paths.tmpDir,
-      'raw-images',
-      `${record.imagingResultId || record.fileName}${extFromMagic}`,
-    );
-    ensureDir(path.dirname(target));
-    await fs.promises.copyFile(archive.cachedPath, target);
-    files.push(target);
-  } else if (fs.existsSync(archive.cachedPath) && fs.statSync(archive.cachedPath).isDirectory()) {
-    files.push(...await listFiles(archive.cachedPath));
+  const extractDir = path.join(workDir, `extract_${record.imagingResultId}_${segmentIndex}`);
+  try {
+    const extracted = await extractImagesFromArchiveOrRawV1(archive.cachedPath, extractDir);
+    if (extracted.ok) files.push(...(extracted.files || []));
+  } catch (err) {
+    logger.job('warn', 'cannot read cdha imaging media file', {
+      imagingResultId: record.imagingResultId,
+      fileName: record.fileName,
+      cachedPath: archive.cachedPath,
+      error: err.message,
+    });
   }
   return files;
 }

@@ -4,6 +4,7 @@ const logger = require('./modules/logging/logger');
 const healthRoutes = require('./routes/health');
 const caseRoutes = require('./routes/cases');
 const reportRoutes = require('./routes/reports');
+const prescriptionRoutes = require('./routes/prescriptions');
 const jobRoutes = require('./routes/jobs');
 
 function createApp() {
@@ -25,6 +26,7 @@ function createApp() {
   app.use(healthRoutes);
   app.use(caseRoutes);
   app.use(reportRoutes);
+  app.use(prescriptionRoutes);
   app.use(jobRoutes);
 
   app.use((req, res) => {
