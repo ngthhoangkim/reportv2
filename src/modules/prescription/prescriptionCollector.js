@@ -264,7 +264,8 @@ async function collectMedications({ sessionId, progressId, subSessionId, doctorI
 
 function medicationBlock(items) {
   return items.map((item) => {
-    const top = `${item.index}/ ${item.itemName}${item.quantity || item.unit ? ` ${item.quantity} ${item.unit}`.trimStart() : ''}`.trim();
+    const amount = [item.quantity, item.unit].filter(Boolean).join(' ');
+    const top = [`${item.index}/`, item.itemName, amount].filter(Boolean).join(' ');
     const dose = item.dose || item.doseUnit ? `Liều/lần: ${[item.dose, item.doseUnit].filter(Boolean).join(' ')}` : '';
     const usage = [item.frequency, item.instructions].filter(Boolean).join(', ');
     return [top, item.note, dose, usage ? `Ngày ${usage}` : ''].filter(Boolean).join('\n');

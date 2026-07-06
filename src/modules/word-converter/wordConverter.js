@@ -127,18 +127,88 @@ try {
   $readOnly = $true
   $doc = $word.Documents.Open([ref]$templatePath, [ref]$confirmConversions, [ref]$readOnly)
 
+  function Normalize-WordText([string]$text) {
+    if ($null -eq $text) { return '' }
+    $cr = [string][char]13
+    $lf = [string][char]10
+    return (($text -replace ($cr + $lf), $cr) -replace $lf, $cr)
+  }
+
   function Replace-Token($document, [string]$findText, [string]$replaceText, [bool]$once) {
     $range = $document.Content
+    $count = 0
+    $wordText = Normalize-WordText $replaceText
     while ($range.Find.Execute($findText)) {
-      $range.Text = $replaceText
-      if ($once) { break }
+      $range.Text = $wordText
+      $count += 1
+      if ($once) { return $count }
       $start = $range.End
       $range = $document.Range($start, $document.Content.End)
+    }
+    return $count
+  }
+
+  function Find-Texts($item) {
+    $texts = @()
+    if ($null -ne $item.finds) {
+      foreach ($findText in @($item.finds)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$findText)) {
+          $texts += [string]$findText
+        }
+      }
+    } elseif ($null -ne $item.find) {
+      $texts += [string]$item.find
+    }
+    return $texts
+  }
+
+  function Replace-AnyToken($document, $findTexts, [string]$replaceText, [bool]$once) {
+    foreach ($findText in $findTexts) {
+      $count = Replace-Token $document ([string]$findText) $replaceText $once
+      if ($once -and $count -gt 0) { return }
+    }
+  }
+
+  function Is-MedicationScaffold([string]$text) {
+    if ($null -eq $text) { return $false }
+    return $text -match '<\s*(#|SL|U|ItemName|Note|Q|F)\s*>' -or
+      $text -match '^\s*\d+\s*/\s*$' -or
+      $text -match 'Ngày' -or
+      $text -match 'mỗi lần'
+  }
+
+  function Replace-MedicationScaffold($document, [string]$replaceText) {
+    if ([string]::IsNullOrWhiteSpace($replaceText)) { return }
+    $paragraphs = $document.Paragraphs
+    for ($i = 1; $i -le $paragraphs.Count; $i++) {
+      $text = [string]$paragraphs.Item($i).Range.Text
+      if ($text -notmatch '<\s*(#|ItemName|SL|Q|F)\s*>') { continue }
+
+      $startIndex = $i
+      while ($startIndex -gt 1) {
+        $previous = [string]$paragraphs.Item($startIndex - 1).Range.Text
+        if (Is-MedicationScaffold $previous) { $startIndex -= 1 } else { break }
+      }
+
+      $endIndex = $i
+      $maxEnd = [Math]::Min($paragraphs.Count, $i + 8)
+      while ($endIndex -lt $maxEnd) {
+        $next = [string]$paragraphs.Item($endIndex + 1).Range.Text
+        if (Is-MedicationScaffold $next) { $endIndex += 1 } else { break }
+      }
+
+      $range = $document.Range($paragraphs.Item($startIndex).Range.Start, $paragraphs.Item($endIndex).Range.End)
+      $range.Text = (Normalize-WordText $replaceText) + ([string][char]13)
+      return
     }
   }
 
   foreach ($item in $replacements) {
-    Replace-Token $doc ([string]$item.find) ([string]$item.replace) ([bool]$item.once)
+    if ([string]$item.kind -eq 'medicationScaffold') {
+      Replace-MedicationScaffold $doc ([string]$item.replace)
+      continue
+    }
+    Replace-AnyToken $doc (Find-Texts $item) ([string]$item.replace) ([bool]$item.once)
   }
 
   $doc.SaveAs([ref]$pdfPath, [ref]17)

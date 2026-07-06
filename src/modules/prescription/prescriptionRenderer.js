@@ -42,6 +42,8 @@ const TOKEN_ALIASES = new Map(Object.entries({
   Doctor: 'Doctor',
 }));
 
+const MEDICATION_SCAFFOLD_TOKENS = new Set(['SL', 'U', 'ItemName', 'Note', 'Q', 'F']);
+
 function escapeXml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -166,9 +168,19 @@ function renderPlaceholdersInXml(xml, data) {
   });
 }
 
+function angleTokenFinds(token) {
+  return [
+    `<${token}>`,
+    `< ${token}>`,
+    `<${token} >`,
+    `< ${token} >`,
+  ];
+}
+
 function tokenReplacement(token, value, once = false) {
   return {
     find: `<${token}>`,
+    finds: angleTokenFinds(token),
     replace: value == null ? '' : String(value),
     once,
   };
@@ -186,11 +198,13 @@ function buildWordReplacements(data, options = {}) {
   }
 
   replacements.push(tokenReplacement('Conclusion', role === 'back' ? data.BackConclusion : data.Conclusion));
+  replacements.push({ kind: 'medicationScaffold', replace: data.MedicationBlock || '' });
   replacements.push({ find: '<#>/', replace: data.MedicationBlock || '', once: false });
   replacements.push(tokenReplacement('#', data.MedicationBlock));
 
   for (const [token, field] of TOKEN_ALIASES.entries()) {
     if (['PatientID', 'Conclusion', '#'].includes(token)) continue;
+    if (MEDICATION_SCAFFOLD_TOKENS.has(token)) continue;
     replacements.push(tokenReplacement(token, field ? data[field] : ''));
   }
   return replacements;
@@ -269,4 +283,5 @@ module.exports = {
   renderPrescriptionDocx,
   renderPrescriptionTemplatePdf,
   renderPrescriptionPdf,
+  angleTokenFinds,
 };

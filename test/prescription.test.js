@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { progressBarcode } = require('../src/modules/prescription/prescriptionUtils');
 const {
   convertAngleTokens,
+  angleTokenFinds,
   buildWordReplacements,
   prepareXmlForDocxtemplater,
   renderPlaceholdersInXml,
@@ -49,7 +50,17 @@ test('word replacements preserve first PatientID as name on front template', () 
     MedicationBlock: 'M',
   }, { role: 'front' });
   assert.deepEqual(replacements.slice(0, 2), [
-    { find: '<PatientID>', replace: 'A', once: true },
-    { find: '<PatientID>', replace: '*B*', once: false },
+    { find: '<PatientID>', finds: ['<PatientID>', '< PatientID>', '<PatientID >', '< PatientID >'], replace: 'A', once: true },
+    { find: '<PatientID>', finds: ['<PatientID>', '< PatientID>', '<PatientID >', '< PatientID >'], replace: '*B*', once: false },
   ]);
+});
+
+test('word replacements include spaced angle token variants', () => {
+  assert.deepEqual(angleTokenFinds('BP'), ['<BP>', '< BP>', '<BP >', '< BP >']);
+});
+
+test('word replacements send medication scaffold as a block', () => {
+  const replacements = buildWordReplacements({ MedicationBlock: '1/ A' });
+  assert.ok(replacements.some((item) => item.kind === 'medicationScaffold' && item.replace === '1/ A'));
+  assert.equal(replacements.some((item) => item.find === '<ItemName>'), false);
 });
