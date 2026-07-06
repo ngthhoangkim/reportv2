@@ -51,33 +51,43 @@ try {
   $word = New-Object -ComObject Word.Application
   $word.Visible = $false
   $word.DisplayAlerts = 0
+  $fileName = '${psEscape(inputPath)}'
+  $confirmConversions = $false
+  $readOnly = $true
+  $addToRecentFiles = $false
+  $passwordDocument = ''
+  $passwordTemplate = ''
+  $revert = $false
+  $writePasswordDocument = ''
+  $writePasswordTemplate = ''
+  $format = 0
+  $encoding = [System.Type]::Missing
+  $visible = $false
+  $openAndRepair = $false
+  $documentDirection = 0
+  $noEncodingDialog = $true
+  $xmlTransform = [System.Type]::Missing
   try {
-    $doc = $word.Documents.Open('${psEscape(inputPath)}', $false, $true)
+    $doc = $word.Documents.Open([ref]$fileName, [ref]$confirmConversions, [ref]$readOnly)
   } catch {
-    $openArgs = @(
-      '${psEscape(inputPath)}',
-      $false,
-      $true,
-      $false,
-      '',
-      '',
-      $false,
-      '',
-      '',
-      0,
-      $false,
-      $true,
-      $true,
-      $false,
-      $false,
-      $false
-    )
-    $doc = $word.Documents.GetType().InvokeMember(
-      'Open',
-      [System.Reflection.BindingFlags]::InvokeMethod,
-      $null,
-      $word.Documents,
-      $openArgs
+    $openAndRepair = $true
+    $doc = $word.Documents.Open(
+      [ref]$fileName,
+      [ref]$confirmConversions,
+      [ref]$readOnly,
+      [ref]$addToRecentFiles,
+      [ref]$passwordDocument,
+      [ref]$passwordTemplate,
+      [ref]$revert,
+      [ref]$writePasswordDocument,
+      [ref]$writePasswordTemplate,
+      [ref]$format,
+      [ref]$encoding,
+      [ref]$visible,
+      [ref]$openAndRepair,
+      [ref]$documentDirection,
+      [ref]$noEncodingDialog,
+      [ref]$xmlTransform
     )
   }
   $doc.SaveAs([ref]'${psEscape(outputPath)}', [ref]${wdFormat})
