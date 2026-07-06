@@ -197,14 +197,19 @@ try {
         if (Is-MedicationScaffold $next) { $endIndex += 1 } else { break }
       }
 
-      $range = $document.Range($paragraphs.Item($startIndex).Range.Start, $paragraphs.Item($endIndex).Range.End)
-      $range.Text = (Normalize-WordText $replaceText) + ([string][char]13)
-      $range.Font.Name = 'Times New Roman'
-      $range.Font.Size = 11
-      $range.Font.Bold = $false
-      $range.ParagraphFormat.LineSpacingRule = 0
-      $range.ParagraphFormat.SpaceBefore = 0
-      $range.ParagraphFormat.SpaceAfter = 0
+      $rangeStart = $paragraphs.Item($startIndex).Range.Start
+      $range = $document.Range($rangeStart, $paragraphs.Item($endIndex).Range.End)
+      $wordText = (Normalize-WordText $replaceText) + ([string][char]13)
+      $range.Text = $wordText
+      $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
+      $inserted = $document.Range($rangeStart, $insertedEnd)
+      $inserted.Font.Name = 'Times New Roman'
+      $inserted.Font.Size = 11
+      $inserted.Font.Bold = $false
+      $inserted.ParagraphFormat.LineSpacingRule = 0
+      $inserted.ParagraphFormat.LineSpacing = 12
+      $inserted.ParagraphFormat.SpaceBefore = 0
+      $inserted.ParagraphFormat.SpaceAfter = 0
       return
     }
   }
