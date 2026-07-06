@@ -71,8 +71,8 @@ const config = {
     includeCnFilesHistory: envBool('INCLUDE_CN_FILES_HISTORY', false),
   },
   prescription: {
-    templateFront: resolvePath('PRESCRIPTION_TEMPLATE_FRONT', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_1.docx')),
-    templateBack: resolvePath('PRESCRIPTION_TEMPLATE_BACK', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_2.docx')),
+    templateFront: resolvePath('PRESCRIPTION_TEMPLATE_FRONT', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_1.doc')),
+    templateBack: resolvePath('PRESCRIPTION_TEMPLATE_BACK', path.join(process.cwd(), 'Templates', 'ToaThuocV2', 'TT_MAT_2.doc')),
     outputDir: resolvePath('PRESCRIPTION_OUTPUT_DIR', path.join(process.cwd(), 'output', 'prescriptions')),
     s3Prefix: envString('PRESCRIPTION_S3_PREFIX', 'khambenh/toathuoc/'),
   },

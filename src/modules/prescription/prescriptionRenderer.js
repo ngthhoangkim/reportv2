@@ -142,7 +142,9 @@ function prepareXmlForDocxtemplater(xml, options = {}) {
 
 async function normalizeTemplate(templatePath) {
   if (path.extname(templatePath).toLowerCase() === '.doc') {
-    return convertDocToDocxCached(templatePath);
+    const converted = await convertDocToDocxCached(templatePath);
+    logger.job('info', 'prescription template normalized', { templatePath, normalizedTemplate: converted });
+    return converted;
   }
   return templatePath;
 }
@@ -150,6 +152,9 @@ async function normalizeTemplate(templatePath) {
 async function renderPrescriptionDocx(templatePath, data, outputPath, options = {}) {
   ensureDir(path.dirname(outputPath));
   const normalizedTemplate = await normalizeTemplate(templatePath);
+  if (path.extname(normalizedTemplate).toLowerCase() !== '.docx') {
+    throw new Error(`Prescription template must be .doc or .docx: ${templatePath}`);
+  }
   const zip = new PizZip(await fs.promises.readFile(normalizedTemplate));
   for (const name of Object.keys(zip.files)) {
     if (!/^word\/(document|header\d*|footer\d*)\.xml$/.test(name)) continue;

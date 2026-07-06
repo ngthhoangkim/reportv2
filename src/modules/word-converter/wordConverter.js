@@ -54,20 +54,30 @@ try {
   try {
     $doc = $word.Documents.Open('${psEscape(inputPath)}', $false, $true)
   } catch {
-    $doc = $word.Documents.Open(
+    $openArgs = @(
       '${psEscape(inputPath)}',
       $false,
       $true,
       $false,
-      $null,
-      $null,
+      '',
+      '',
       $false,
-      $null,
-      $null,
-      $null,
-      $null,
+      '',
+      '',
+      0,
       $false,
-      $true
+      $true,
+      $true,
+      $false,
+      $false,
+      $false
+    )
+    $doc = $word.Documents.GetType().InvokeMember(
+      'Open',
+      [System.Reflection.BindingFlags]::InvokeMethod,
+      $null,
+      $word.Documents,
+      $openArgs
     )
   }
   $doc.SaveAs([ref]'${psEscape(outputPath)}', [ref]${wdFormat})
