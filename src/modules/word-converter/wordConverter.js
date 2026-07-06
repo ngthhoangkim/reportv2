@@ -134,7 +134,7 @@ try {
     return (($text -replace ($cr + $lf), $cr) -replace $lf, $cr)
   }
 
-  function Relax-RangeFrames($range, [double]$minHeight, [double]$minWidth) {
+  function Relax-RangeFrames($range, [double]$minHeight, [double]$minWidth, [double]$shiftLeft) {
     if ($null -eq $range) { return }
     try {
       $count = $range.Frames.Count
@@ -147,23 +147,29 @@ try {
         if ($minWidth -gt 0 -and $frame.Width -lt $minWidth) {
           $frame.Width = $minWidth
         }
+        if ($shiftLeft -gt 0) {
+          $frame.HorizontalPosition = $frame.HorizontalPosition - $shiftLeft
+        }
       }
     } catch {
       # Some converted .doc templates expose no Frame collection on this range.
     }
   }
 
-  function Apply-CompactParagraphFormat($range, [double]$fontSize, [double]$lineSpacing, [double]$minFrameHeight, [double]$minFrameWidth) {
+  function Apply-CompactParagraphFormat($range, [double]$fontSize, [double]$lineSpacing, [double]$minFrameHeight, [double]$minFrameWidth, [double]$shiftLeft) {
     if ($null -eq $range) { return }
     $range.Font.Name = 'Times New Roman'
     $range.Font.Size = $fontSize
     $range.Font.Bold = $false
     $range.ParagraphFormat.Alignment = 0
+    $range.ParagraphFormat.LeftIndent = 0
+    $range.ParagraphFormat.FirstLineIndent = 0
+    $range.ParagraphFormat.RightIndent = 0
     $range.ParagraphFormat.LineSpacingRule = 0
     $range.ParagraphFormat.LineSpacing = $lineSpacing
     $range.ParagraphFormat.SpaceBefore = 0
     $range.ParagraphFormat.SpaceAfter = 0
-    Relax-RangeFrames $range $minFrameHeight $minFrameWidth
+    Relax-RangeFrames $range $minFrameHeight $minFrameWidth $shiftLeft
   }
 
   function Replace-Token($document, [string]$findText, [string]$replaceText, [bool]$once) {
@@ -173,7 +179,7 @@ try {
     while ($range.Find.Execute($findText)) {
       $range.Text = $wordText
       if ($findText -match 'Conclusion|ChanDoan') {
-        Apply-CompactParagraphFormat $range 10.5 11 0 0
+        Apply-CompactParagraphFormat $range 10.5 11 0 0 0
       }
       $count += 1
       if ($once) { return $count }
@@ -257,7 +263,7 @@ try {
     $range.Text = Normalize-WordText $text
     $range.Font.Name = 'Times New Roman'
     $range.Font.Size = 11
-    Relax-RangeFrames $range 18 0
+    Relax-RangeFrames $range 18 0 0
   }
 
   function Compact-RxLine($row) {
@@ -313,7 +319,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 8.2 10.2 318 340
+      Apply-CompactParagraphFormat $inserted 8.8 11.4 330 430 42
       return
     }
 
