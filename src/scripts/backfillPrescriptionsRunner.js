@@ -25,6 +25,37 @@ function failedCandidates() {
     }));
 }
 
+function candidateSortValue(item) {
+  return item.lastChangedAt ? new Date(item.lastChangedAt).getTime() : Number.MAX_SAFE_INTEGER;
+}
+
+function sortCandidates(candidates) {
+  return candidates.slice().sort((a, b) => {
+    const byDate = candidateSortValue(a) - candidateSortValue(b);
+    if (byDate) return byDate;
+    const byFile = String(a.fileNum || '').localeCompare(String(b.fileNum || ''));
+    if (byFile) return byFile;
+    const bySession = Number(a.sessionId || 0) - Number(b.sessionId || 0);
+    if (bySession) return bySession;
+    return Number(a.progressId || 0) - Number(b.progressId || 0);
+  });
+}
+
+function writeProgress(options, item, index, total, result) {
+  state.writeJson('prescription-backfill-progress.json', {
+    updatedAt: new Date().toISOString(),
+    range: options.date ? { date: options.date } : { from: options.from || null, to: options.to || null },
+    upload: Boolean(options.upload),
+    force: Boolean(options.force),
+    index,
+    total,
+    remaining: Math.max(total - index, 0),
+    current: item,
+    ok: result && result.ok !== false,
+    error: result && result.ok === false ? result.error || null : null,
+  });
+}
+
 async function runPrescriptionBackfill(options) {
   let candidates = [];
   if (options.fileNum) {
@@ -58,7 +89,7 @@ async function runPrescriptionBackfill(options) {
     const key = `${c.fileNum}::${c.sessionId == null ? 'all' : c.sessionId}::${c.progressId == null ? 'all' : c.progressId}`;
     unique.set(key, c);
   }
-  const list = Array.from(unique.values());
+  const list = sortCandidates(Array.from(unique.values()));
   logger.backfill('info', 'prescription backfill candidates', {
     count: list.length,
     dryRun: Boolean(options.dryRun),
@@ -70,14 +101,27 @@ async function runPrescriptionBackfill(options) {
   }
 
   const results = [];
-  for (const item of list) {
-    results.push(await generatePrescriptionsSafe({
+  for (let i = 0; i < list.length; i += 1) {
+    const item = list[i];
+    logger.backfill('info', 'prescription backfill progress', {
+      index: i + 1,
+      total: list.length,
+      remaining: list.length - i - 1,
+      fileNum: item.fileNum,
+      sessionId: item.sessionId,
+      progressId: item.progressId,
+      source: item.source,
+      lastChangedAt: item.lastChangedAt,
+    });
+    const result = await generatePrescriptionsSafe({
       fileNum: item.fileNum,
       sessionId: item.sessionId,
       progressId: item.progressId,
       force: Boolean(options.force),
       upload: Boolean(options.upload),
-    }));
+    });
+    results.push(result);
+    writeProgress(options, item, i + 1, list.length, result);
   }
   return { ok: true, count: results.length, results };
 }
