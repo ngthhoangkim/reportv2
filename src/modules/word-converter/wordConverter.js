@@ -173,7 +173,7 @@ try {
     while ($range.Find.Execute($findText)) {
       $range.Text = $wordText
       if ($findText -match 'Conclusion|ChanDoan') {
-        Apply-CompactParagraphFormat $range 8.5 9 46 330
+        Apply-CompactParagraphFormat $range 10.5 11 0 0
       }
       $count += 1
       if ($once) { return $count }
@@ -313,7 +313,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 7.2 9.2 286 385
+      Apply-CompactParagraphFormat $inserted 8.2 10.2 318 340
       return
     }
 
