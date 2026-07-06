@@ -134,7 +134,7 @@ try {
     return (($text -replace ($cr + $lf), $cr) -replace $lf, $cr)
   }
 
-  function Relax-RangeFrames($range, [double]$minHeight) {
+  function Relax-RangeFrames($range, [double]$minHeight, [double]$minWidth) {
     if ($null -eq $range) { return }
     try {
       $count = $range.Frames.Count
@@ -144,13 +144,16 @@ try {
         if ($minHeight -gt 0 -and $frame.Height -lt $minHeight) {
           $frame.Height = $minHeight
         }
+        if ($minWidth -gt 0 -and $frame.Width -lt $minWidth) {
+          $frame.Width = $minWidth
+        }
       }
     } catch {
       # Some converted .doc templates expose no Frame collection on this range.
     }
   }
 
-  function Apply-CompactParagraphFormat($range, [double]$fontSize, [double]$lineSpacing, [double]$minFrameHeight) {
+  function Apply-CompactParagraphFormat($range, [double]$fontSize, [double]$lineSpacing, [double]$minFrameHeight, [double]$minFrameWidth) {
     if ($null -eq $range) { return }
     $range.Font.Name = 'Times New Roman'
     $range.Font.Size = $fontSize
@@ -160,7 +163,7 @@ try {
     $range.ParagraphFormat.LineSpacing = $lineSpacing
     $range.ParagraphFormat.SpaceBefore = 0
     $range.ParagraphFormat.SpaceAfter = 0
-    Relax-RangeFrames $range $minFrameHeight
+    Relax-RangeFrames $range $minFrameHeight $minFrameWidth
   }
 
   function Replace-Token($document, [string]$findText, [string]$replaceText, [bool]$once) {
@@ -170,7 +173,7 @@ try {
     while ($range.Find.Execute($findText)) {
       $range.Text = $wordText
       if ($findText -match 'Conclusion|ChanDoan') {
-        Apply-CompactParagraphFormat $range 8.5 9 920
+        Apply-CompactParagraphFormat $range 8.5 9 46 330
       }
       $count += 1
       if ($once) { return $count }
@@ -254,7 +257,7 @@ try {
     $range.Text = Normalize-WordText $text
     $range.Font.Name = 'Times New Roman'
     $range.Font.Size = 11
-    Relax-RangeFrames $range 360
+    Relax-RangeFrames $range 18 0
   }
 
   function Compact-RxLine($row) {
@@ -308,7 +311,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 7.5 7.8 5400
+      Apply-CompactParagraphFormat $inserted 7.5 7.8 280 350
       return
     }
 
