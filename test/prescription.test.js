@@ -8,6 +8,7 @@ const {
   buildWordReplacements,
   medicationRowsForWord,
   prepareXmlForDocxtemplater,
+  replaceMedicationParagraphsInXml,
   renderPlaceholdersInXml,
 } = require('../src/modules/prescription/prescriptionRenderer');
 const { s3KeyForProgress } = require('../src/modules/prescription/prescriptionGenerator');
@@ -107,4 +108,25 @@ test('medication block follows prescription scaffold order', () => {
     'Ngày 2 lần/ngày, mỗi lần 1 Viên',
     'sáng chiều sau ăn',
   ].join('\n'));
+});
+
+test('medication XML renderer clones the full prescription scaffold per item', () => {
+  const scaffold = [
+    '<w:p><w:pPr/><w:r><w:t>&lt;#&gt;/</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>&lt;SL&gt; &lt;U&gt;</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>&lt;ItemName&gt;</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>&lt;Note&gt;</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>Ngày</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>, mỗi lần</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>&lt;Q&gt; &lt;U&gt;</w:t></w:r></w:p>',
+    '<w:p><w:pPr/><w:r><w:t>&lt;F&gt;</w:t></w:r></w:p>',
+  ].join('');
+  const out = replaceMedicationParagraphsInXml(scaffold, [
+    { itemName: 'A', quantity: '1', unit: 'Viên', dose: '1', doseUnit: 'Viên', frequency: '2 lần/ngày', instructions: 'sáng' },
+    { itemName: 'B', quantity: '2', unit: 'Hộp', dose: '2', doseUnit: 'nhát', frequency: '1 lần/ngày', instructions: 'tối' },
+  ]);
+  assert.equal((out.match(/<w:p>/g) || []).length, 16);
+  assert.match(out, /A/);
+  assert.match(out, /B/);
+  assert.doesNotMatch(out, /ItemName/);
 });

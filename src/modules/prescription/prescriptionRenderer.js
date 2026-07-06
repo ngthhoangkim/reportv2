@@ -4,7 +4,7 @@ const PizZip = require('pizzip');
 const { PDFDocument } = require('pdf-lib');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
-const { convertDocToDocxCached, renderWordTemplateToPdf } = require('../word-converter/wordConverter');
+const { convertDocToDocxCached, convertDocxToPdf, renderWordTemplateToPdf } = require('../word-converter/wordConverter');
 const logger = require('../logging/logger');
 
 const TOKEN_ALIASES = new Map(Object.entries({
@@ -168,6 +168,66 @@ function renderPlaceholdersInXml(xml, data) {
   });
 }
 
+function splitParagraphRanges(xml) {
+  const ranges = [];
+  const re = /<w:p(?=[\s>])[\s\S]*?<\/w:p>/g;
+  let match;
+  while ((match = re.exec(xml)) !== null) {
+    ranges.push({ start: match.index, end: re.lastIndex, xml: match[0] });
+  }
+  return ranges;
+}
+
+function extractPPr(paraXml) {
+  const match = String(paraXml).match(/<w:pPr\b[\s\S]*?<\/w:pPr>/);
+  return match ? match[0] : '<w:pPr/>';
+}
+
+function extractFirstRPr(paraXml) {
+  const firstRun = String(paraXml).match(/<w:r\b[\s\S]*?<\/w:r>/);
+  if (!firstRun) return '';
+  const rPr = firstRun[0].match(/<w:rPr\b[\s\S]*?<\/w:rPr>/);
+  return rPr ? rPr[0] : '';
+}
+
+function replaceParagraphPlainText(paraXml, text) {
+  const pPr = extractPPr(paraXml);
+  const rPr = extractFirstRPr(paraXml);
+  return `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text || '')}</w:t></w:r></w:p>`;
+}
+
+function medicationTemplatePayloads(item, index) {
+  const quantity = [item.quantity, item.unit].filter(Boolean).join(' ');
+  const itemName = item.property ? `${item.itemName} (${item.property})` : item.itemName;
+  const dose = [item.dose, item.doseUnit].filter(Boolean).join(' ');
+  return [
+    `${index + 1}/`,
+    quantity,
+    itemName,
+    item.instructions || item.note || '',
+    'Ngày',
+    ', mỗi lần',
+    dose,
+    item.frequency || '',
+  ];
+}
+
+function replaceMedicationParagraphsInXml(xml, medications = []) {
+  const paragraphs = splitParagraphRanges(xml);
+  const startIndex = paragraphs.findIndex((para) => /^<\s*#\s*>\s*\/?$/.test(paragraphText(para.xml)));
+  if (startIndex < 0 || startIndex + 7 >= paragraphs.length) return xml;
+
+  const template = paragraphs.slice(startIndex, startIndex + 8).map((para) => para.xml);
+  const block = (medications || []).map((item, medicationIndex) => {
+    const payloads = medicationTemplatePayloads(item, medicationIndex);
+    return template.map((para, i) => replaceParagraphPlainText(para, payloads[i])).join('');
+  }).join('');
+
+  const rangeStart = paragraphs[startIndex].start;
+  const rangeEnd = paragraphs[startIndex + 7].end;
+  return xml.slice(0, rangeStart) + block + xml.slice(rangeEnd);
+}
+
 function angleTokenFinds(token) {
   return [
     `<${token}>`,
@@ -239,7 +299,10 @@ async function renderPrescriptionDocx(templatePath, data, outputPath, options = 
   const zip = new PizZip(await fs.promises.readFile(normalizedTemplate));
   for (const name of Object.keys(zip.files)) {
     if (!/^word\/(document|header\d*|footer\d*)\.xml$/.test(name)) continue;
-    const prepared = prepareXmlForDocxtemplater(zip.file(name).asText(), options);
+    const xml = options.role === 'front'
+      ? replaceMedicationParagraphsInXml(zip.file(name).asText(), data.medications)
+      : zip.file(name).asText();
+    const prepared = prepareXmlForDocxtemplater(xml, options);
     zip.file(name, renderPlaceholdersInXml(prepared, data));
   }
   const buffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
@@ -262,6 +325,13 @@ async function mergePdfs(inputPaths, outputPath) {
 
 async function renderPrescriptionTemplatePdf(templatePath, data, pdfPath, options = {}) {
   ensureDir(path.dirname(pdfPath));
+  if (options.role === 'front' && (data.medications || []).length > 1) {
+    const docxPath = pdfPath.replace(/\.pdf$/i, '.docx');
+    await renderPrescriptionDocx(templatePath, data, docxPath, options);
+    await convertDocxToPdf(docxPath, pdfPath);
+    logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });
+    return pdfPath;
+  }
   const replacements = buildWordReplacements(data, options);
   await renderWordTemplateToPdf(templatePath, pdfPath, replacements);
   logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });
@@ -296,4 +366,5 @@ module.exports = {
   renderPrescriptionPdf,
   angleTokenFinds,
   medicationRowsForWord,
+  replaceMedicationParagraphsInXml,
 };
