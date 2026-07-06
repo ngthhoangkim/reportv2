@@ -6,6 +6,7 @@ const {
   convertAngleTokens,
   angleTokenFinds,
   buildWordReplacements,
+  medicationRowsForWord,
   prepareXmlForDocxtemplater,
   renderPlaceholdersInXml,
 } = require('../src/modules/prescription/prescriptionRenderer');
@@ -60,10 +61,32 @@ test('word replacements include spaced angle token variants', () => {
   assert.deepEqual(angleTokenFinds('BP'), ['<BP>', '< BP>', '<BP >', '< BP >']);
 });
 
-test('word replacements send medication scaffold as a block', () => {
-  const replacements = buildWordReplacements({ MedicationBlock: '1/ A' });
-  assert.ok(replacements.some((item) => item.kind === 'medicationScaffold' && item.replace === '1/ A'));
+test('word replacements send medication rows, not a clipped block', () => {
+  const replacements = buildWordReplacements({ medications: [{ itemName: 'A', quantity: '1', unit: 'Viên' }] }, { role: 'front' });
+  assert.ok(replacements.some((item) => item.kind === 'medicationRows' && item.rows[0].itemName === 'A'));
   assert.equal(replacements.some((item) => item.find === '<ItemName>'), false);
+});
+
+test('medication rows for word follow v1-style placeholders', () => {
+  assert.deepEqual(medicationRowsForWord({
+    medications: [{
+      itemName: 'Hapacol Caplet 500',
+      property: 'Paracetamol (acetaminophen)',
+      quantity: '10',
+      unit: 'Viên',
+      dose: '1',
+      doseUnit: 'Viên',
+      frequency: '2 lần/ngày',
+      instructions: 'sáng chiều sau ăn',
+    }],
+  }), [{
+    index: '1/',
+    quantity: '10 Viên',
+    itemName: 'Hapacol Caplet 500 (Paracetamol (acetaminophen))',
+    note: 'sáng chiều sau ăn',
+    dose: '1 Viên',
+    frequency: '2 lần/ngày',
+  }]);
 });
 
 test('medication block follows prescription scaffold order', () => {

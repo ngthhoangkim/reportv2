@@ -214,7 +214,84 @@ try {
     }
   }
 
+  function Set-ParagraphPlainText($document, $paragraph, [string]$text) {
+    if ($null -eq $paragraph) { return }
+    $start = $paragraph.Range.Start
+    $end = [Math]::Max($start, $paragraph.Range.End - 1)
+    $range = $document.Range($start, $end)
+    $range.Text = Normalize-WordText $text
+    $range.Font.Name = 'Times New Roman'
+    $range.Font.Size = 11
+  }
+
+  function Format-ExtraRxRow($row) {
+    $parts = @(
+      ([string]$row.index + ' ' + [string]$row.quantity).Trim(),
+      [string]$row.itemName,
+      [string]$row.note,
+      'Ngày',
+      ', mỗi lần',
+      [string]$row.dose,
+      [string]$row.frequency
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    return ($parts -join ([string][char]13)) + ([string][char]13)
+  }
+
+  function Find-RxStartParagraphIndex($paragraphs) {
+    for ($i = 1; $i -le $paragraphs.Count; $i++) {
+      $text = [string]$paragraphs.Item($i).Range.Text
+      if ($text -match '<\s*#\s*>') { return $i }
+    }
+    return 0
+  }
+
+  function Replace-PrescriptionRows($document, $rows) {
+    if ($null -eq $rows) { return }
+    $paragraphs = $document.Paragraphs
+    $startIndex = Find-RxStartParagraphIndex $paragraphs
+    if ($startIndex -le 0) { return }
+    $rowCount = @($rows).Count
+    if ($rowCount -le 0) {
+      for ($offset = 0; $offset -le 7; $offset++) {
+        if ($startIndex + $offset -le $paragraphs.Count) {
+          Set-ParagraphPlainText $document $paragraphs.Item($startIndex + $offset) ''
+        }
+      }
+      return
+    }
+
+    $first = @($rows)[0]
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex) ([string]$first.index)
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 1) ([string]$first.quantity)
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 2) ([string]$first.itemName)
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 3) ([string]$first.note)
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 4) 'Ngày'
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 5) ', mỗi lần'
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 6) ([string]$first.dose)
+    Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 7) ([string]$first.frequency)
+
+    if ($rowCount -gt 1) {
+      $extra = ''
+      for ($r = 1; $r -lt $rowCount; $r++) {
+        $extra += Format-ExtraRxRow @($rows)[$r]
+      }
+      if (-not [string]::IsNullOrWhiteSpace($extra)) {
+        $insertAt = $paragraphs.Item($startIndex + 7).Range.End
+        $range = $document.Range($insertAt, $insertAt)
+        $range.InsertAfter($extra)
+        $insertedEnd = [Math]::Min($document.Content.End, $insertAt + $extra.Length)
+        $inserted = $document.Range($insertAt, $insertedEnd)
+        $inserted.Font.Name = 'Times New Roman'
+        $inserted.Font.Size = 11
+      }
+    }
+  }
+
   foreach ($item in $replacements) {
+    if ([string]$item.kind -eq 'medicationRows') {
+      Replace-PrescriptionRows $doc $item.rows
+      continue
+    }
     if ([string]$item.kind -eq 'medicationScaffold') {
       Replace-MedicationScaffold $doc ([string]$item.replace)
       continue

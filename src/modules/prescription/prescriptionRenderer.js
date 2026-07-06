@@ -186,6 +186,17 @@ function tokenReplacement(token, value, once = false) {
   };
 }
 
+function medicationRowsForWord(data) {
+  return (data.medications || []).map((item, index) => ({
+    index: `${index + 1}/`,
+    quantity: [item.quantity, item.unit].filter(Boolean).join(' '),
+    itemName: item.property ? `${item.itemName} (${item.property})` : item.itemName,
+    note: item.instructions || item.note || '',
+    dose: [item.dose, item.doseUnit].filter(Boolean).join(' '),
+    frequency: item.frequency || '',
+  }));
+}
+
 function buildWordReplacements(data, options = {}) {
   const role = options.role || 'generic';
   const replacements = [];
@@ -198,9 +209,9 @@ function buildWordReplacements(data, options = {}) {
   }
 
   replacements.push(tokenReplacement('Conclusion', role === 'back' ? data.BackConclusion : data.Conclusion));
-  replacements.push({ kind: 'medicationScaffold', replace: data.MedicationBlock || '' });
-  replacements.push({ find: '<#>/', replace: data.MedicationBlock || '', once: false });
-  replacements.push(tokenReplacement('#', data.MedicationBlock));
+  if (role === 'front') {
+    replacements.push({ kind: 'medicationRows', rows: medicationRowsForWord(data) });
+  }
 
   for (const [token, field] of TOKEN_ALIASES.entries()) {
     if (['PatientID', 'Conclusion', '#'].includes(token)) continue;
@@ -284,4 +295,5 @@ module.exports = {
   renderPrescriptionTemplatePdf,
   renderPrescriptionPdf,
   angleTokenFinds,
+  medicationRowsForWord,
 };
