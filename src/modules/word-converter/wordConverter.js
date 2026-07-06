@@ -134,12 +134,44 @@ try {
     return (($text -replace ($cr + $lf), $cr) -replace $lf, $cr)
   }
 
+  function Relax-RangeFrames($range, [double]$minHeight) {
+    if ($null -eq $range) { return }
+    try {
+      $count = $range.Frames.Count
+      for ($f = 1; $f -le $count; $f++) {
+        $frame = $range.Frames.Item($f)
+        $frame.HeightRule = 1
+        if ($minHeight -gt 0 -and $frame.Height -lt $minHeight) {
+          $frame.Height = $minHeight
+        }
+      }
+    } catch {
+      # Some converted .doc templates expose no Frame collection on this range.
+    }
+  }
+
+  function Apply-CompactParagraphFormat($range, [double]$fontSize, [double]$lineSpacing, [double]$minFrameHeight) {
+    if ($null -eq $range) { return }
+    $range.Font.Name = 'Times New Roman'
+    $range.Font.Size = $fontSize
+    $range.Font.Bold = $false
+    $range.ParagraphFormat.Alignment = 0
+    $range.ParagraphFormat.LineSpacingRule = 0
+    $range.ParagraphFormat.LineSpacing = $lineSpacing
+    $range.ParagraphFormat.SpaceBefore = 0
+    $range.ParagraphFormat.SpaceAfter = 0
+    Relax-RangeFrames $range $minFrameHeight
+  }
+
   function Replace-Token($document, [string]$findText, [string]$replaceText, [bool]$once) {
     $range = $document.Content
     $count = 0
     $wordText = Normalize-WordText $replaceText
     while ($range.Find.Execute($findText)) {
       $range.Text = $wordText
+      if ($findText -match 'Conclusion|ChanDoan') {
+        Apply-CompactParagraphFormat $range 8.5 9 920
+      }
       $count += 1
       if ($once) { return $count }
       $start = $range.End
@@ -222,6 +254,7 @@ try {
     $range.Text = Normalize-WordText $text
     $range.Font.Name = 'Times New Roman'
     $range.Font.Size = 11
+    Relax-RangeFrames $range 360
   }
 
   function Compact-RxLine($row) {
@@ -275,13 +308,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      $inserted.Font.Name = 'Times New Roman'
-      $inserted.Font.Size = 8.5
-      $inserted.Font.Bold = $false
-      $inserted.ParagraphFormat.LineSpacingRule = 0
-      $inserted.ParagraphFormat.LineSpacing = 9
-      $inserted.ParagraphFormat.SpaceBefore = 0
-      $inserted.ParagraphFormat.SpaceAfter = 0
+      Apply-CompactParagraphFormat $inserted 7.5 7.8 5400
       return
     }
 

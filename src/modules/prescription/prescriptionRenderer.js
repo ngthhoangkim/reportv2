@@ -325,6 +325,12 @@ async function mergePdfs(inputPaths, outputPath) {
 
 async function renderPrescriptionTemplatePdf(templatePath, data, pdfPath, options = {}) {
   ensureDir(path.dirname(pdfPath));
+  if (options.role === 'front') {
+    logger.job('info', 'prescription front template data', {
+      medicationCount: (data.medications || []).length,
+      diagnosisLength: String(data.Conclusion || '').length,
+    });
+  }
   const replacements = buildWordReplacements(data, options);
   await renderWordTemplateToPdf(templatePath, pdfPath, replacements);
   logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });
