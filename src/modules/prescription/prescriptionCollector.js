@@ -35,14 +35,14 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
   const pid = progressId == null || progressId === '' ? null : Number(progressId);
   const rows = await db.query(
     `
-    SELECT DISTINCT
+    SELECT
       vp.Id AS ProgressId,
       s.PatientID,
       vp.SubSessionId,
       vp.DoctorId,
       vp.DoctorName,
       vp.MainDisease,
-      vp.CreatedDate,
+      vp.VisitDate,
       vp.FinishDate,
       vs.Id AS SessionId,
       p.FileNum,
@@ -72,6 +72,7 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
     `,
     { fileNum: cleanFileNum, sessionId: sid, progressId: pid },
   );
+  const seen = new Set();
   return rows.map((row) => ({
     progressId: numOrNull(row.ProgressId),
     sessionId: numOrNull(row.SessionId),
@@ -80,14 +81,18 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
     doctorId: numOrNull(row.DoctorId),
     doctorName: cleanText(row.DoctorName),
     mainDisease: cleanText(row.MainDisease),
-    visitDate: row.FinishDate || row.CreatedDate || null,
+    visitDate: row.FinishDate || row.VisitDate || null,
     fileNum: row.FileNum != null ? String(row.FileNum).trim() : cleanFileNum,
     patientName: '',
     dob: null,
     sex: '',
     address: '',
     cardCode: cleanText(row.CardCode),
-  })).filter((row) => row.progressId);
+  })).filter((row) => {
+    if (!row.progressId || seen.has(row.progressId)) return false;
+    seen.add(row.progressId);
+    return true;
+  });
 }
 
 async function collectPersonDetails(patientId) {
@@ -115,7 +120,7 @@ async function collectDoctorQualification(doctorId) {
     `
     SELECT TOP 1 Qualification
     FROM dbo.ViewStaff WITH (NOLOCK)
-    WHERE Id = @doctorId
+    WHERE ContactId = @doctorId
     `,
     { doctorId },
   );
@@ -152,7 +157,7 @@ async function collectGeneralExam(subSessionId) {
   return {
     pulse: cleanText(firstValue(row, ['Pulse', 'HeartRate', 'HR', 'Mach'])),
     temperature: cleanText(firstValue(row, ['Temperature', 'Temp', 'NhietDo'])),
-    respiratoryRate: cleanText(firstValue(row, ['RespiratoryRate', 'BreathingRate', 'RR', 'NhipTho'])),
+    respiratoryRate: cleanText(firstValue(row, ['RespiratoryRate', 'BreathingRate', 'Resp', 'RR', 'NhipTho'])),
     bloodPressure: cleanText(bloodPressure || (systolic && diastolic ? `${systolic}/${diastolic}` : '')),
   };
 }
@@ -162,13 +167,12 @@ async function collectNotes({ progressId, subSessionId }) {
     `
     SELECT *
     FROM dbo.CN_Note WITH (NOLOCK)
-    WHERE DeletedDate IS NULL
-      AND TypeCde IN (2, 8)
+    WHERE TypeCde IN (2, 8)
       AND (
         ProgressId = @progressId
         OR SubSessionId = @subSessionId
       )
-    ORDER BY CreatedDate DESC, ID DESC
+    ORDER BY ID DESC
     `,
     { progressId, subSessionId },
   );
@@ -180,29 +184,28 @@ async function collectNotes({ progressId, subSessionId }) {
   };
 }
 
-async function collectManagementFallback(progressId) {
+async function collectManagementFallback(sessionId) {
   const rows = await optionalQuery(
     `
     SELECT TOP 1 *
     FROM dbo.ViewProgressNote WITH (NOLOCK)
-    WHERE ProgressId = @progressId
-    ORDER BY CreatedDate DESC
+    WHERE SessionId = @sessionId
     `,
-    { progressId },
+    { sessionId },
   );
   return cleanText(firstValue(rows[0], ['Management', 'Advice', 'Note']));
 }
 
 function mapMedication(row, index) {
-  const itemName = cleanText(firstValue(row, ['ItemName', 'Name', 'Item']));
+  const itemName = cleanText(firstValue(row, ['ItemName', 'Name', 'Item', 'ITEM']));
   const property = cleanText(firstValue(row, ['Property', 'Ingredient', 'ActiveIngredient']));
-  const note = cleanText(firstValue(row, ['Note', 'UsageNote', 'Comment']));
-  const instructions = cleanText(firstValue(row, ['Instructions', 'Instruction', 'Usage', 'CachDung']));
-  const dose = cleanText(firstValue(row, ['Dosage', 'Dose', 'QuantityUsage']));
+  const note = cleanText(firstValue(row, ['Note', 'UsageNote', 'Comment', 'Reason', 'REASON']));
+  const instructions = cleanText(firstValue(row, ['Instructions', 'INSTRUCTIONS', 'Instruction', 'Usage', 'CachDung']));
+  const dose = cleanText(firstValue(row, ['Dosage', 'Dose', 'DOSE', 'QuantityUsage']));
   const doseUnit = cleanText(firstValue(row, ['UnitUsage', 'UsageUnitName', 'DoseUnitName', 'UnitName']));
-  const frequency = cleanText(firstValue(row, ['Frequency', 'FrequencyName', 'TimesPerDay']));
-  const quantity = cleanText(firstValue(row, ['Quantity', 'Qty', 'Amount']));
-  const unit = cleanText(firstValue(row, ['UnitName', 'Unit', 'InventoryUnitName']));
+  const frequency = cleanText(firstValue(row, ['Frequency', 'FREQUENCY', 'FrequencyName', 'TimesPerDay']));
+  const quantity = cleanText(firstValue(row, ['Quantity', 'QUANTITY', 'Qty', 'Amount']));
+  const unit = cleanText(firstValue(row, ['UnitName', 'UNITNAME', 'Unit', 'InventoryUnitName']));
   return {
     index,
     rxId: numOrNull(row.ID),
@@ -330,7 +333,7 @@ async function collectPrescriptionData(options) {
       collectPathologyFallback(progress.progressId),
       collectGeneralExam(progress.subSessionId),
       collectNotes({ progressId: progress.progressId, subSessionId: progress.subSessionId }),
-      collectManagementFallback(progress.progressId),
+      collectManagementFallback(progress.sessionId),
       collectMedications(progress),
     ]);
     Object.assign(progress, personDetails);

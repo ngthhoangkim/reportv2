@@ -63,7 +63,6 @@ const config = {
   },
   word: {
     timeoutMs: envNumber('WORD_CONVERT_TIMEOUT_MS', defaults.word.timeoutMs),
-    useWord: envBool('USE_WORD', true),
   },
   media: {
     printedImagesOnly: envBool('PRINTED_IMAGES_ONLY', true),
