@@ -251,6 +251,7 @@ function medicationRowsForWord(data) {
     index: `${index + 1}/`,
     quantity: [item.quantity, item.unit].filter(Boolean).join(' '),
     itemName: item.property ? `${item.itemName} (${item.property})` : item.itemName,
+    compactName: item.itemName || '',
     note: item.instructions || item.note || '',
     dose: [item.dose, item.doseUnit].filter(Boolean).join(' '),
     frequency: item.frequency || '',

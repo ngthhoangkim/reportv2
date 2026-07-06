@@ -261,7 +261,9 @@ try {
   }
 
   function Compact-RxLine($row) {
-    $head = (([string]$row.index + ' ' + [string]$row.itemName).Trim())
+    $name = [string]$row.compactName
+    if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$row.itemName }
+    $head = (([string]$row.index + ' ' + $name).Trim())
     $parts = @()
     if (-not [string]::IsNullOrWhiteSpace([string]$row.quantity)) { $parts += [string]$row.quantity }
     if (-not [string]::IsNullOrWhiteSpace([string]$row.frequency)) { $parts += ('Ngày ' + [string]$row.frequency) }
@@ -311,7 +313,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 7.5 7.8 280 350
+      Apply-CompactParagraphFormat $inserted 7.2 9.2 286 385
       return
     }
 

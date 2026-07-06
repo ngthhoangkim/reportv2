@@ -84,6 +84,7 @@ test('medication rows for word follow v1-style placeholders', () => {
     index: '1/',
     quantity: '10 Viên',
     itemName: 'Hapacol Caplet 500 (Paracetamol (acetaminophen))',
+    compactName: 'Hapacol Caplet 500',
     note: 'sáng chiều sau ăn',
     dose: '1 Viên',
     frequency: '2 lần/ngày',
