@@ -100,6 +100,60 @@ try {
   return outputPath;
 }
 
+async function renderWordTemplateToPdf(templatePath, pdfPath, replacements = []) {
+  if (process.platform !== 'win32') {
+    throw new Error('Word COM template rendering requires Windows with Microsoft Word installed');
+  }
+  ensureDir(path.dirname(pdfPath));
+  const dataDir = path.join(config.paths.tmpDir, 'word-template-data');
+  ensureDir(dataDir);
+  const replacementsPath = path.join(dataDir, `${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+  await fs.promises.writeFile(replacementsPath, JSON.stringify(replacements), 'utf8');
+
+  const script = `
+$ErrorActionPreference = 'Stop'
+$word = $null
+$doc = $null
+try {
+  $templatePath = '${psEscape(templatePath)}'
+  $pdfPath = '${psEscape(pdfPath)}'
+  $replacementsPath = '${psEscape(replacementsPath)}'
+  $replacements = Get-Content -LiteralPath $replacementsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $word.DisplayAlerts = 0
+  $confirmConversions = $false
+  $readOnly = $true
+  $doc = $word.Documents.Open([ref]$templatePath, [ref]$confirmConversions, [ref]$readOnly)
+
+  function Replace-Token($document, [string]$findText, [string]$replaceText, [bool]$once) {
+    $range = $document.Content
+    while ($range.Find.Execute($findText)) {
+      $range.Text = $replaceText
+      if ($once) { break }
+      $start = $range.End
+      $range = $document.Range($start, $document.Content.End)
+    }
+  }
+
+  foreach ($item in $replacements) {
+    Replace-Token $doc ([string]$item.find) ([string]$item.replace) ([bool]$item.once)
+  }
+
+  $doc.SaveAs([ref]$pdfPath, [ref]17)
+} finally {
+  if ($doc -ne $null) { $doc.Close([ref]$false) | Out-Null }
+  if ($word -ne $null) { $word.Quit() | Out-Null }
+  if (Test-Path -LiteralPath '${psEscape(replacementsPath)}') { Remove-Item -LiteralPath '${psEscape(replacementsPath)}' -Force }
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+}
+`;
+  await runPowerShell(script, config.word.timeoutMs);
+  return pdfPath;
+}
+
 function enqueue(task) {
   const run = queue.then(task, task);
   queue = run.catch(() => {});
@@ -136,5 +190,6 @@ async function convertDocToDocxCached(docPath) {
 module.exports = {
   convertDocxToPdf,
   convertDocToDocxCached,
+  renderWordTemplateToPdf,
   enqueue,
 };

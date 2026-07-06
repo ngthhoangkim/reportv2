@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { progressBarcode } = require('../src/modules/prescription/prescriptionUtils');
 const {
   convertAngleTokens,
+  buildWordReplacements,
   prepareXmlForDocxtemplater,
   renderPlaceholdersInXml,
 } = require('../src/modules/prescription/prescriptionRenderer');
@@ -38,4 +39,17 @@ test('prescription renderer replaces placeholders without docxtemplater', () => 
     renderPlaceholdersInXml(xml, { So: 539910, MedicationBlock: 'A\nB' }),
     '<w:t xml:space="preserve">539910</w:t><w:t>A</w:t><w:br/><w:t>B</w:t>',
   );
+});
+
+test('word replacements preserve first PatientID as name on front template', () => {
+  const replacements = buildWordReplacements({
+    PatientName: 'A',
+    PatientBarcode: '*B*',
+    Conclusion: 'C',
+    MedicationBlock: 'M',
+  }, { role: 'front' });
+  assert.deepEqual(replacements.slice(0, 2), [
+    { find: '<PatientID>', replace: 'A', once: true },
+    { find: '<PatientID>', replace: '*B*', once: false },
+  ]);
 });

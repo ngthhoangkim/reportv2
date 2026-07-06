@@ -4,7 +4,7 @@ const PizZip = require('pizzip');
 const { PDFDocument } = require('pdf-lib');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
-const { convertDocToDocxCached, convertDocxToPdf } = require('../word-converter/wordConverter');
+const { convertDocToDocxCached, renderWordTemplateToPdf } = require('../word-converter/wordConverter');
 const logger = require('../logging/logger');
 
 const TOKEN_ALIASES = new Map(Object.entries({
@@ -166,6 +166,36 @@ function renderPlaceholdersInXml(xml, data) {
   });
 }
 
+function tokenReplacement(token, value, once = false) {
+  return {
+    find: `<${token}>`,
+    replace: value == null ? '' : String(value),
+    once,
+  };
+}
+
+function buildWordReplacements(data, options = {}) {
+  const role = options.role || 'generic';
+  const replacements = [];
+
+  if (role === 'front') {
+    replacements.push(tokenReplacement('PatientID', data.PatientName, true));
+    replacements.push(tokenReplacement('PatientID', data.PatientBarcode));
+  } else {
+    replacements.push(tokenReplacement('PatientID', data.PatientBarcode));
+  }
+
+  replacements.push(tokenReplacement('Conclusion', role === 'back' ? data.BackConclusion : data.Conclusion));
+  replacements.push({ find: '<#>/', replace: data.MedicationBlock || '', once: false });
+  replacements.push(tokenReplacement('#', data.MedicationBlock));
+
+  for (const [token, field] of TOKEN_ALIASES.entries()) {
+    if (['PatientID', 'Conclusion', '#'].includes(token)) continue;
+    replacements.push(tokenReplacement(token, field ? data[field] : ''));
+  }
+  return replacements;
+}
+
 async function normalizeTemplate(templatePath) {
   if (path.extname(templatePath).toLowerCase() === '.doc') {
     const converted = await convertDocToDocxCached(templatePath);
@@ -205,25 +235,27 @@ async function mergePdfs(inputPaths, outputPath) {
   return outputPath;
 }
 
+async function renderPrescriptionTemplatePdf(templatePath, data, pdfPath, options = {}) {
+  ensureDir(path.dirname(pdfPath));
+  const replacements = buildWordReplacements(data, options);
+  await renderWordTemplateToPdf(templatePath, pdfPath, replacements);
+  logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });
+  return pdfPath;
+}
+
 async function renderPrescriptionPdf(prescriptionData, outputPdfPath) {
   const progressId = prescriptionData.progressId;
   const baseDir = path.join(config.paths.tmpDir, 'prescriptions', String(progressId));
   ensureDir(baseDir);
-  const frontDocx = path.join(baseDir, `${progressId}-front.docx`);
-  const backDocx = path.join(baseDir, `${progressId}-back.docx`);
   const frontPdf = path.join(baseDir, `${progressId}-front.pdf`);
   const backPdf = path.join(baseDir, `${progressId}-back.pdf`);
 
-  await renderPrescriptionDocx(config.prescription.templateFront, prescriptionData.templateData, frontDocx, { role: 'front' });
-  await renderPrescriptionDocx(config.prescription.templateBack, prescriptionData.templateData, backDocx, { role: 'back' });
-  await convertDocxToPdf(frontDocx, frontPdf);
-  await convertDocxToPdf(backDocx, backPdf);
+  await renderPrescriptionTemplatePdf(config.prescription.templateFront, prescriptionData.templateData, frontPdf, { role: 'front' });
+  await renderPrescriptionTemplatePdf(config.prescription.templateBack, prescriptionData.templateData, backPdf, { role: 'back' });
   await mergePdfs([frontPdf, backPdf], outputPdfPath);
   logger.job('info', 'prescription pdf rendered', { progressId, outputPdfPath });
   return {
     pdfPath: outputPdfPath,
-    frontDocx,
-    backDocx,
     frontPdf,
     backPdf,
   };
@@ -231,8 +263,10 @@ async function renderPrescriptionPdf(prescriptionData, outputPdfPath) {
 
 module.exports = {
   convertAngleTokens,
+  buildWordReplacements,
   prepareXmlForDocxtemplater,
   renderPlaceholdersInXml,
   renderPrescriptionDocx,
+  renderPrescriptionTemplatePdf,
   renderPrescriptionPdf,
 };
