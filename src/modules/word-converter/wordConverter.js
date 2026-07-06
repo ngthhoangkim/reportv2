@@ -319,7 +319,7 @@ try {
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 8.8 11.4 330 430 42
+      Apply-CompactParagraphFormat $inserted 10.5 12.6 390 430 42
       return
     }
 
