@@ -66,7 +66,6 @@ try {
   $openAndRepair = $false
   $documentDirection = 0
   $noEncodingDialog = $true
-  $xmlTransform = [System.Type]::Missing
   try {
     $doc = $word.Documents.Open([ref]$fileName, [ref]$confirmConversions, [ref]$readOnly)
   } catch {
@@ -86,8 +85,7 @@ try {
       [ref]$visible,
       [ref]$openAndRepair,
       [ref]$documentDirection,
-      [ref]$noEncodingDialog,
-      [ref]$xmlTransform
+      [ref]$noEncodingDialog
     )
   }
   $doc.SaveAs([ref]'${psEscape(outputPath)}', [ref]${wdFormat})
