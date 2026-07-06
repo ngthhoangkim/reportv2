@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
-const Docxtemplater = require('docxtemplater');
 const { PDFDocument } = require('pdf-lib');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
@@ -140,6 +139,33 @@ function prepareXmlForDocxtemplater(xml, options = {}) {
   return String(xml).replace(/<w:p(?=[\s>])[\s\S]*?<\/w:p>/g, (paragraph) => normalizeParagraphXml(paragraph, context));
 }
 
+function placeholderValue(name, data) {
+  if (!Object.prototype.hasOwnProperty.call(data, name)) return '';
+  const value = data[name];
+  if (value == null) return '';
+  return String(value);
+}
+
+function replaceTemplatePlaceholders(text, data) {
+  return String(text).replace(/\{([A-Za-z0-9_]+)\}/g, (_, name) => placeholderValue(name, data));
+}
+
+function renderTextNode(attrs, value) {
+  const text = String(value);
+  const parts = text.split(/\n/);
+  if (parts.length === 1) return `<w:t${attrs}>${escapeXml(parts[0])}</w:t>`;
+  return parts
+    .map((part, index) => `${index ? '<w:br/>' : ''}<w:t${attrs}>${escapeXml(part)}</w:t>`)
+    .join('');
+}
+
+function renderPlaceholdersInXml(xml, data) {
+  return String(xml).replace(/<w:t([^>]*)>([\s\S]*?)<\/w:t>/g, (_, attrs, rawText) => {
+    const replaced = replaceTemplatePlaceholders(unescapeXml(rawText), data);
+    return renderTextNode(attrs, replaced);
+  });
+}
+
 async function normalizeTemplate(templatePath) {
   if (path.extname(templatePath).toLowerCase() === '.doc') {
     const converted = await convertDocToDocxCached(templatePath);
@@ -158,15 +184,10 @@ async function renderPrescriptionDocx(templatePath, data, outputPath, options = 
   const zip = new PizZip(await fs.promises.readFile(normalizedTemplate));
   for (const name of Object.keys(zip.files)) {
     if (!/^word\/(document|header\d*|footer\d*)\.xml$/.test(name)) continue;
-    zip.file(name, prepareXmlForDocxtemplater(zip.file(name).asText(), options));
+    const prepared = prepareXmlForDocxtemplater(zip.file(name).asText(), options);
+    zip.file(name, renderPlaceholdersInXml(prepared, data));
   }
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    nullGetter: () => '',
-  });
-  doc.render(data);
-  const buffer = doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const buffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
   await fs.promises.writeFile(outputPath, buffer);
   logger.job('info', 'prescription docx rendered', { templatePath, outputPath });
   return outputPath;
@@ -211,6 +232,7 @@ async function renderPrescriptionPdf(prescriptionData, outputPdfPath) {
 module.exports = {
   convertAngleTokens,
   prepareXmlForDocxtemplater,
+  renderPlaceholdersInXml,
   renderPrescriptionDocx,
   renderPrescriptionPdf,
 };

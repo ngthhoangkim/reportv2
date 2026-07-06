@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { progressBarcode } = require('../src/modules/prescription/prescriptionUtils');
-const { convertAngleTokens, prepareXmlForDocxtemplater } = require('../src/modules/prescription/prescriptionRenderer');
+const {
+  convertAngleTokens,
+  prepareXmlForDocxtemplater,
+  renderPlaceholdersInXml,
+} = require('../src/modules/prescription/prescriptionRenderer');
 const { s3KeyForProgress } = require('../src/modules/prescription/prescriptionGenerator');
 
 test('progress barcode is G plus 8-digit padded ProgressId', () => {
@@ -26,4 +30,12 @@ test('front template treats repeated PatientID placeholders by position', () => 
 test('prescription XML normalizer only rewrites real paragraphs', () => {
   const xml = '<w:body><w:p><w:pPr/><w:r><w:t>&lt;SO&gt;</w:t></w:r></w:p></w:body>';
   assert.equal(prepareXmlForDocxtemplater(xml), '<w:body><w:p><w:pPr/><w:r><w:t>{So}</w:t></w:r></w:p></w:body>');
+});
+
+test('prescription renderer replaces placeholders without docxtemplater', () => {
+  const xml = '<w:t xml:space="preserve">{So}</w:t><w:t>{MedicationBlock}</w:t>';
+  assert.equal(
+    renderPlaceholdersInXml(xml, { So: 539910, MedicationBlock: 'A\nB' }),
+    '<w:t xml:space="preserve">539910</w:t><w:t>A</w:t><w:br/><w:t>B</w:t>',
+  );
 });
