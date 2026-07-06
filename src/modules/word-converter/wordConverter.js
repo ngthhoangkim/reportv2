@@ -199,6 +199,12 @@ try {
 
       $range = $document.Range($paragraphs.Item($startIndex).Range.Start, $paragraphs.Item($endIndex).Range.End)
       $range.Text = (Normalize-WordText $replaceText) + ([string][char]13)
+      $range.Font.Name = 'Times New Roman'
+      $range.Font.Size = 11
+      $range.Font.Bold = $false
+      $range.ParagraphFormat.LineSpacingRule = 0
+      $range.ParagraphFormat.SpaceBefore = 0
+      $range.ParagraphFormat.SpaceAfter = 0
       return
     }
   }

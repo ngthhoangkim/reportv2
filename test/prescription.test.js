@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { progressBarcode } = require('../src/modules/prescription/prescriptionUtils');
+const { medicationBlock } = require('../src/modules/prescription/prescriptionCollector');
 const {
   convertAngleTokens,
   angleTokenFinds,
@@ -63,4 +64,24 @@ test('word replacements send medication scaffold as a block', () => {
   const replacements = buildWordReplacements({ MedicationBlock: '1/ A' });
   assert.ok(replacements.some((item) => item.kind === 'medicationScaffold' && item.replace === '1/ A'));
   assert.equal(replacements.some((item) => item.find === '<ItemName>'), false);
+});
+
+test('medication block follows prescription scaffold order', () => {
+  assert.equal(medicationBlock([{
+    index: 1,
+    itemName: 'Hapacol Caplet 500',
+    property: 'Paracetamol (acetaminophen)',
+    quantity: '10',
+    unit: 'Viên',
+    dose: '1',
+    doseUnit: 'Viên',
+    frequency: '2 lần/ngày',
+    instructions: 'sáng chiều sau ăn',
+  }]), [
+    '1/ 10 Viên',
+    'Hapacol Caplet 500',
+    '(Paracetamol (acetaminophen))',
+    'Ngày 2 lần/ngày, mỗi lần 1 Viên',
+    'sáng chiều sau ăn',
+  ].join('\n'));
 });

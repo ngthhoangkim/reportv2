@@ -29,6 +29,25 @@ function sessionPredicate(sessionId) {
   return sessionId != null ? 'AND vs.Id = @sessionId' : '';
 }
 
+function joinAddressParts(parts, separator = ' ') {
+  return parts
+    .map((part) => cleanText(part).replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .join(separator);
+}
+
+function fullAddress(row) {
+  const direct = cleanText(firstValue(row, ['Address', 'FullAddress']));
+  if (direct) return direct.replace(/\s+/g, ' ');
+  const line = joinAddressParts([firstValue(row, ['AddressNo']), firstValue(row, ['Street'])]);
+  return joinAddressParts([
+    line,
+    firstValue(row, ['Ward']),
+    firstValue(row, ['District']),
+    firstValue(row, ['City']),
+  ], ', ');
+}
+
 async function collectPrescriptionProgresses({ fileNum, sessionId = null, progressId = null }) {
   const cleanFileNum = String(fileNum || '').trim();
   const sid = sessionId == null || sessionId === '' ? null : Number(sessionId);
@@ -110,7 +129,7 @@ async function collectPersonDetails(patientId) {
     patientName: cleanText(firstValue(row, ['FullName', 'PatientName', 'Name'])),
     dob: firstValue(row, ['Dob', 'DOB', 'BirthDate', 'DateOfBirth'], null),
     sex: cleanText(firstValue(row, ['Sex', 'Gender'])),
-    address: cleanText(firstValue(row, ['Street', 'Address', 'FullAddress'])),
+    address: fullAddress(row),
   };
 }
 
@@ -210,7 +229,8 @@ function mapMedication(row, index) {
     index,
     rxId: numOrNull(row.ID),
     scriptNo: cleanText(row.ScriptNo),
-    itemName: property ? `${itemName} (${property})` : itemName,
+    itemName,
+    property,
     note,
     quantity,
     unit,
@@ -265,10 +285,14 @@ async function collectMedications({ sessionId, progressId, subSessionId, doctorI
 function medicationBlock(items) {
   return items.map((item) => {
     const amount = [item.quantity, item.unit].filter(Boolean).join(' ');
-    const top = [`${item.index}/`, item.itemName, amount].filter(Boolean).join(' ');
-    const dose = item.dose || item.doseUnit ? `Liều/lần: ${[item.dose, item.doseUnit].filter(Boolean).join(' ')}` : '';
-    const usage = [item.frequency, item.instructions].filter(Boolean).join(', ');
-    return [top, item.note, dose, usage ? `Ngày ${usage}` : ''].filter(Boolean).join('\n');
+    const top = [`${item.index}/`, amount].filter(Boolean).join(' ');
+    const note = item.note || (item.property ? `(${item.property})` : '');
+    const dose = [item.dose, item.doseUnit].filter(Boolean).join(' ');
+    const doseLine = [
+      item.frequency ? `Ngày ${item.frequency}` : '',
+      dose ? `mỗi lần ${dose}` : '',
+    ].filter(Boolean).join(', ');
+    return [top, item.itemName, note, doseLine, item.instructions].filter(Boolean).join('\n');
   }).join('\n\n');
 }
 
