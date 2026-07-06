@@ -4,7 +4,7 @@ const PizZip = require('pizzip');
 const { PDFDocument } = require('pdf-lib');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
-const { convertDocToDocxCached, convertDocxToPdf, renderWordTemplateToPdf } = require('../word-converter/wordConverter');
+const { convertDocToDocxCached, renderWordTemplateToPdf } = require('../word-converter/wordConverter');
 const logger = require('../logging/logger');
 
 const TOKEN_ALIASES = new Map(Object.entries({
@@ -325,13 +325,6 @@ async function mergePdfs(inputPaths, outputPath) {
 
 async function renderPrescriptionTemplatePdf(templatePath, data, pdfPath, options = {}) {
   ensureDir(path.dirname(pdfPath));
-  if (options.role === 'front' && (data.medications || []).length > 1) {
-    const docxPath = pdfPath.replace(/\.pdf$/i, '.docx');
-    await renderPrescriptionDocx(templatePath, data, docxPath, options);
-    await convertDocxToPdf(docxPath, pdfPath);
-    logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });
-    return pdfPath;
-  }
   const replacements = buildWordReplacements(data, options);
   await renderWordTemplateToPdf(templatePath, pdfPath, replacements);
   logger.job('info', 'prescription template pdf rendered', { templatePath, pdfPath });

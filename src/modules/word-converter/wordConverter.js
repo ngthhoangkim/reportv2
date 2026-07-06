@@ -224,17 +224,24 @@ try {
     $range.Font.Size = 11
   }
 
-  function Format-ExtraRxRow($row) {
-    $parts = @(
-      ([string]$row.index + ' ' + [string]$row.quantity).Trim(),
-      [string]$row.itemName,
-      [string]$row.note,
-      'Ngày',
-      ', mỗi lần',
-      [string]$row.dose,
-      [string]$row.frequency
-    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
-    return ($parts -join ([string][char]13)) + ([string][char]13)
+  function Compact-RxLine($row) {
+    $head = (([string]$row.index + ' ' + [string]$row.itemName).Trim())
+    $parts = @()
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.quantity)) { $parts += [string]$row.quantity }
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.frequency)) { $parts += ('Ngày ' + [string]$row.frequency) }
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.dose)) { $parts += ('mỗi lần ' + [string]$row.dose) }
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.note)) { $parts += [string]$row.note }
+    if ($parts.Count -gt 0) { return $head + ' - ' + ($parts -join ', ') }
+    return $head
+  }
+
+  function Compact-RxBlock($rows) {
+    $lines = @()
+    foreach ($row in @($rows)) {
+      $line = Compact-RxLine $row
+      if (-not [string]::IsNullOrWhiteSpace($line)) { $lines += $line }
+    }
+    return $lines -join ([string][char]13)
   }
 
   function Find-RxStartParagraphIndex($paragraphs) {
@@ -260,6 +267,24 @@ try {
       return
     }
 
+    if ($rowCount -gt 1) {
+      $endIndex = [Math]::Min($paragraphs.Count, $startIndex + 7)
+      $rangeStart = $paragraphs.Item($startIndex).Range.Start
+      $range = $document.Range($rangeStart, $paragraphs.Item($endIndex).Range.End)
+      $wordText = (Normalize-WordText (Compact-RxBlock $rows)) + ([string][char]13)
+      $range.Text = $wordText
+      $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
+      $inserted = $document.Range($rangeStart, $insertedEnd)
+      $inserted.Font.Name = 'Times New Roman'
+      $inserted.Font.Size = 8.5
+      $inserted.Font.Bold = $false
+      $inserted.ParagraphFormat.LineSpacingRule = 0
+      $inserted.ParagraphFormat.LineSpacing = 9
+      $inserted.ParagraphFormat.SpaceBefore = 0
+      $inserted.ParagraphFormat.SpaceAfter = 0
+      return
+    }
+
     $first = @($rows)[0]
     Set-ParagraphPlainText $document $paragraphs.Item($startIndex) ([string]$first.index)
     Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 1) ([string]$first.quantity)
@@ -269,22 +294,6 @@ try {
     Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 5) ', mỗi lần'
     Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 6) ([string]$first.dose)
     Set-ParagraphPlainText $document $paragraphs.Item($startIndex + 7) ([string]$first.frequency)
-
-    if ($rowCount -gt 1) {
-      $extra = ''
-      for ($r = 1; $r -lt $rowCount; $r++) {
-        $extra += Format-ExtraRxRow @($rows)[$r]
-      }
-      if (-not [string]::IsNullOrWhiteSpace($extra)) {
-        $insertAt = $paragraphs.Item($startIndex + 7).Range.End
-        $range = $document.Range($insertAt, $insertAt)
-        $range.InsertAfter($extra)
-        $insertedEnd = [Math]::Min($document.Content.End, $insertAt + $extra.Length)
-        $inserted = $document.Range($insertAt, $insertedEnd)
-        $inserted.Font.Name = 'Times New Roman'
-        $inserted.Font.Size = 11
-      }
-    }
   }
 
   foreach ($item in $replacements) {
