@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { progressBarcode } = require('../src/modules/prescription/prescriptionUtils');
-const { convertAngleTokens } = require('../src/modules/prescription/prescriptionRenderer');
+const { convertAngleTokens, prepareXmlForDocxtemplater } = require('../src/modules/prescription/prescriptionRenderer');
 const { s3KeyForProgress } = require('../src/modules/prescription/prescriptionGenerator');
 
 test('progress barcode is G plus 8-digit padded ProgressId', () => {
@@ -21,4 +21,9 @@ test('short angle placeholders normalize to docxtemplater tags', () => {
 test('front template treats repeated PatientID placeholders by position', () => {
   const context = { role: 'front', patientIdCount: 0 };
   assert.equal(convertAngleTokens('<PatientID> <PatientID>', context), '{PatientName} {PatientBarcode}');
+});
+
+test('prescription XML normalizer only rewrites real paragraphs', () => {
+  const xml = '<w:body><w:p><w:pPr/><w:r><w:t>&lt;SO&gt;</w:t></w:r></w:p></w:body>';
+  assert.equal(prepareXmlForDocxtemplater(xml), '<w:body><w:p><w:pPr/><w:r><w:t>{So}</w:t></w:r></w:p></w:body>');
 });

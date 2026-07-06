@@ -137,7 +137,7 @@ function normalizeParagraphXml(paragraphXml, context = {}) {
 
 function prepareXmlForDocxtemplater(xml, options = {}) {
   const context = { role: options.role || 'generic', patientIdCount: 0 };
-  return String(xml).replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => normalizeParagraphXml(paragraph, context));
+  return String(xml).replace(/<w:p(?=[\s>])[\s\S]*?<\/w:p>/g, (paragraph) => normalizeParagraphXml(paragraph, context));
 }
 
 async function normalizeTemplate(templatePath) {
