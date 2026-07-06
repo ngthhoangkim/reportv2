@@ -51,7 +51,25 @@ try {
   $word = New-Object -ComObject Word.Application
   $word.Visible = $false
   $word.DisplayAlerts = 0
-  $doc = $word.Documents.Open('${psEscape(inputPath)}', $false, $true)
+  try {
+    $doc = $word.Documents.Open('${psEscape(inputPath)}', $false, $true)
+  } catch {
+    $doc = $word.Documents.Open(
+      '${psEscape(inputPath)}',
+      $false,
+      $true,
+      $false,
+      $null,
+      $null,
+      $false,
+      $null,
+      $null,
+      $null,
+      $null,
+      $false,
+      $true
+    )
+  }
   $doc.SaveAs([ref]'${psEscape(outputPath)}', [ref]${wdFormat})
 } finally {
   if ($doc -ne $null) { $doc.Close([ref]$false) | Out-Null }
