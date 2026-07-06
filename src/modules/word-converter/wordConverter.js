@@ -279,11 +279,38 @@ try {
     return $head
   }
 
+  function Wrap-RxLine([string]$line, [int]$maxChars) {
+    if ([string]::IsNullOrWhiteSpace($line) -or $line.Length -le $maxChars) {
+      return @($line)
+    }
+    $words = $line -split '\s+'
+    $wrapped = @()
+    $current = ''
+    foreach ($word in $words) {
+      if ([string]::IsNullOrWhiteSpace($current)) {
+        $current = $word
+        continue
+      }
+      if (($current.Length + 1 + $word.Length) -gt $maxChars) {
+        $wrapped += $current
+        $current = '   ' + $word
+      } else {
+        $current += ' ' + $word
+      }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($current)) {
+      $wrapped += $current
+    }
+    return $wrapped
+  }
+
   function Compact-RxBlock($rows) {
     $lines = @()
     foreach ($row in @($rows)) {
       $line = Compact-RxLine $row
-      if (-not [string]::IsNullOrWhiteSpace($line)) { $lines += $line }
+      if (-not [string]::IsNullOrWhiteSpace($line)) {
+        $lines += Wrap-RxLine $line 82
+      }
     }
     return $lines -join ([string][char]13)
   }
