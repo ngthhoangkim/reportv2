@@ -266,50 +266,14 @@ try {
     Relax-RangeFrames $range 18 0 0
   }
 
-  function Rx-ItemName($row) {
-    $name = [string]$row.itemName
-    if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$row.compactName }
-    return $name
-  }
-
-  function Rx-DetailLine($row) {
-    $parts = @()
-    if (-not [string]::IsNullOrWhiteSpace([string]$row.frequency)) { $parts += ('Ngày ' + [string]$row.frequency) }
-    if (-not [string]::IsNullOrWhiteSpace([string]$row.dose)) { $parts += ('mỗi lần ' + [string]$row.dose) }
-    if (-not [string]::IsNullOrWhiteSpace([string]$row.note)) { $parts += [string]$row.note }
-    return ($parts -join ', ')
-  }
-
-  function Rx-BlockLines($rows) {
-    $tab = [string][char]9
-    $lines = @()
-    foreach ($row in @($rows)) {
-      $head = (([string]$row.index + ' ' + (Rx-ItemName $row)).Trim())
-      if (-not [string]::IsNullOrWhiteSpace([string]$row.quantity)) {
-        $head += $tab + [string]$row.quantity
-      }
-      $lines += $head
-      $detail = Rx-DetailLine $row
-      if (-not [string]::IsNullOrWhiteSpace($detail)) {
-        $lines += ('    ' + $detail)
-      }
-    }
-    return $lines -join ([string][char]13)
-  }
-
-  function Apply-RxDotLeaderTabs($range) {
-    $tab = [string][char]9
-    $frameWidth = 430
-    try {
-      if ($range.Frames.Count -gt 0) { $frameWidth = $range.Frames.Item(1).Width }
-    } catch { }
-    $tabPos = [Math]::Max(120, $frameWidth - 8)
-    foreach ($para in $range.Paragraphs) {
-      if (([string]$para.Range.Text).Contains($tab)) {
-        $para.TabStops.ClearAll()
-        $para.TabStops.Add($tabPos, 2, 1) | Out-Null
-      }
-    }
+  function Set-ParagraphTextCompact($document, $paragraph, [string]$text, [double]$fontSize) {
+    if ($null -eq $paragraph) { return }
+    $start = $paragraph.Range.Start
+    $end = [Math]::Max($start, $paragraph.Range.End - 1)
+    $range = $document.Range($start, $end)
+    $range.Text = Normalize-WordText $text
+    $range.Font.Name = 'Times New Roman'
+    $range.Font.Size = $fontSize
   }
 
   function Find-RxStartParagraphIndex($paragraphs) {
@@ -337,14 +301,75 @@ try {
 
     if ($rowCount -gt 1) {
       $endIndex = [Math]::Min($paragraphs.Count, $startIndex + 7)
-      $rangeStart = $paragraphs.Item($startIndex).Range.Start
-      $range = $document.Range($rangeStart, $paragraphs.Item($endIndex).Range.End)
-      $wordText = (Normalize-WordText (Rx-BlockLines $rows)) + ([string][char]13)
-      $range.Text = $wordText
-      $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
-      $inserted = $document.Range($rangeStart, $insertedEnd)
-      Apply-CompactParagraphFormat $inserted 10.5 12.6 390 430 42
-      Apply-RxDotLeaderTabs $inserted
+
+      # The template lays the medication scaffold out as page-anchored frames
+      # (dotted bottom borders draw the ..... ruling). Capture each scaffold
+      # paragraph's frame Y so the copies can be shifted down per item.
+      $frameY = @{}
+      $minY = $null
+      for ($o = 0; $o -le ($endIndex - $startIndex); $o++) {
+        try {
+          $r = $paragraphs.Item($startIndex + $o).Range
+          if ($r.Frames.Count -gt 0) {
+            $y = [double]$r.Frames.Item(1).VerticalPosition
+            $frameY[$o] = $y
+            if ($null -eq $minY -or $y -lt $minY) { $minY = $y }
+          }
+        } catch { }
+      }
+      if ($null -eq $minY) { $minY = 0 }
+
+      $pageHeight = 842.0
+      try { $pageHeight = [double]$document.PageSetup.PageHeight } catch { }
+      $available = [Math]::Max(120.0, $pageHeight - $minY - 130)
+      $step = 44.0
+      if (($step * $rowCount) -gt $available) {
+        $step = [Math]::Max(26.0, [Math]::Floor($available / $rowCount))
+      }
+      $lineOffset = [Math]::Floor($step / 2)
+      $fontSize = 10.5
+      if ($step -lt 32) { $fontSize = 9.5 }
+
+      $scafStart = $paragraphs.Item($startIndex).Range.Start
+      $scafEnd = $paragraphs.Item($endIndex).Range.End
+      $scaffold = $document.Range($scafStart, $scafEnd)
+      $copyFrom = $scaffold.FormattedText
+      for ($k = 1; $k -lt $rowCount; $k++) {
+        $target = $document.Range($scafEnd, $scafEnd)
+        $target.FormattedText = $copyFrom
+      }
+
+      $paragraphs = $document.Paragraphs
+      for ($b = 0; $b -lt $rowCount; $b++) {
+        $row = @($rows)[$b]
+        $base = $startIndex + (8 * $b)
+        $name = [string]$row.compactName
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$row.itemName }
+        $values = @(
+          ([string]$row.index),
+          ([string]$row.quantity),
+          $name,
+          ([string]$row.note),
+          'Ngày',
+          ', mỗi lần',
+          ([string]$row.dose),
+          ([string]$row.frequency)
+        )
+        for ($o = 0; $o -le 7; $o++) {
+          if (($base + $o) -gt $paragraphs.Count) { break }
+          $para = $paragraphs.Item($base + $o)
+          Set-ParagraphTextCompact $document $para $values[$o] $fontSize
+          if ($frameY.ContainsKey($o)) {
+            try {
+              $frame = $para.Range.Frames.Item(1)
+              $lineY = 0.0
+              if (($frameY[$o] - $minY) -gt 2) { $lineY = $lineOffset }
+              try { $frame.HeightRule = 0 } catch { }
+              $frame.VerticalPosition = $minY + ($b * $step) + $lineY
+            } catch { }
+          }
+        }
+      }
       return
     }
 

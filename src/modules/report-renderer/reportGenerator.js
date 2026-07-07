@@ -57,11 +57,13 @@ async function generateReport(options) {
     let uploads = [];
     if (options.upload) {
       uploads = [];
-      for (const file of renderedItems.files || []) {
-        uploads.push({ fileName: file.fileName, result: await uploadPdf(file.pdfPath) });
-      }
-      for (const file of renderedCnFiles.files || []) {
-        uploads.push({ fileName: file.fileName, result: await uploadPdf(file.pdfPath) });
+      for (const file of (renderedItems.files || []).concat(renderedCnFiles.files || [])) {
+        const result = await uploadPdf(file.pdfPath);
+        uploads.push({ fileName: file.fileName, result });
+        if (result.ok && config.s3.cleanupAfterUpload) {
+          await fs.promises.rm(file.pdfPath, { force: true });
+          logger.job('info', 'local pdf cleaned after upload', { pdfPath: file.pdfPath });
+        }
       }
     }
 
@@ -139,6 +141,10 @@ async function generateReport(options) {
   let uploadResult = null;
   if (options.upload) {
     uploadResult = await uploadPdf(pdfPath);
+    if (uploadResult.ok && config.s3.cleanupAfterUpload) {
+      await fs.promises.rm(pdfPath, { force: true });
+      logger.job('info', 'local pdf cleaned after upload', { pdfPath });
+    }
   }
   return { ok: true, ...job, upload: uploadResult };
 }

@@ -54,6 +54,7 @@ const config = {
   s3: {
     baseUrl: envString('S3_UPLOAD_API_BASE', ''),
     prefix: envString('S3_UPLOAD_PREFIX', 'khambenh/'),
+    cleanupAfterUpload: envBool('CLEANUP_AFTER_UPLOAD', false),
   },
   worker: {
     enabled: envBool('WORKER_ENABLED', true),
