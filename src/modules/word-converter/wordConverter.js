@@ -321,16 +321,42 @@ try {
 
       $pageHeight = 842.0
       try { $pageHeight = [double]$document.PageSetup.PageHeight } catch { }
-      $available = [Math]::Max(120.0, $pageHeight - $minY - 110)
+
+      # Find where the footer block (Tái khám / Lời dặn) actually starts so the
+      # medication list can use every point of space above it.
+      $footerY = $null
+      for ($i = 1; $i -le $paragraphs.Count; $i++) {
+        $t = [string]$paragraphs.Item($i).Range.Text
+        if ($t -match 'Tái khám|Lời dặn|Xin đem theo') {
+          try {
+            $r = $paragraphs.Item($i).Range
+            if ($r.Frames.Count -gt 0) {
+              $fy = [double]$r.Frames.Item(1).VerticalPosition
+              if ($fy -gt ($minY + 80) -and ($null -eq $footerY -or $fy -lt $footerY)) { $footerY = $fy }
+            }
+          } catch { }
+        }
+      }
+      $bottomLimit = $pageHeight - 110
+      if ($null -ne $footerY) { $bottomLimit = $footerY - 8 }
+
+      $available = [Math]::Max(120.0, $bottomLimit - $minY)
       $step = [Math]::Floor($available / $rowCount)
       if ($step -gt 44) { $step = 44.0 }
       if ($step -lt 24) { $step = 24.0 }
-      $fontSize = 10.5
-      if ($step -lt 34) { $fontSize = 9.5 }
       # line 2 sits a fixed distance under line 1; whatever remains of the
-      # step becomes the visible gap between consecutive items.
-      $lineOffset = 14.0
-      if ($fontSize -lt 10) { $lineOffset = 12.0 }
+      # step becomes the visible gap between consecutive items. When space is
+      # tight, shrink the type so the gap stays visible.
+      if ($step -ge 34) {
+        $fontSize = 10.5
+        $lineOffset = 14.0
+      } elseif ($step -ge 31) {
+        $fontSize = 9.5
+        $lineOffset = 12.5
+      } else {
+        $fontSize = 9.0
+        $lineOffset = 11.0
+      }
 
       $scafStart = $paragraphs.Item($startIndex).Range.Start
       $scafEnd = $paragraphs.Item($endIndex).Range.End
