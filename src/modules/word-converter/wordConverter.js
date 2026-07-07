@@ -321,14 +321,16 @@ try {
 
       $pageHeight = 842.0
       try { $pageHeight = [double]$document.PageSetup.PageHeight } catch { }
-      $available = [Math]::Max(120.0, $pageHeight - $minY - 130)
-      $step = 44.0
-      if (($step * $rowCount) -gt $available) {
-        $step = [Math]::Max(26.0, [Math]::Floor($available / $rowCount))
-      }
-      $lineOffset = [Math]::Floor($step / 2)
+      $available = [Math]::Max(120.0, $pageHeight - $minY - 110)
+      $step = [Math]::Floor($available / $rowCount)
+      if ($step -gt 44) { $step = 44.0 }
+      if ($step -lt 24) { $step = 24.0 }
       $fontSize = 10.5
-      if ($step -lt 32) { $fontSize = 9.5 }
+      if ($step -lt 34) { $fontSize = 9.5 }
+      # line 2 sits a fixed distance under line 1; whatever remains of the
+      # step becomes the visible gap between consecutive items.
+      $lineOffset = 14.0
+      if ($fontSize -lt 10) { $lineOffset = 12.0 }
 
       $scafStart = $paragraphs.Item($startIndex).Range.Start
       $scafEnd = $paragraphs.Item($endIndex).Range.End
