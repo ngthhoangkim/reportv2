@@ -43,6 +43,8 @@ function buildSqlLoginConfig() {
     server: config.db.server,
     port: config.db.port,
     database: config.db.database,
+    connectionTimeout: config.db.connectTimeoutMs,
+    requestTimeout: config.db.requestTimeoutMs,
     authentication: {
       type: 'default',
       options: {
@@ -61,12 +63,14 @@ function buildSqlLoginConfig() {
 
 function buildConfig() {
   if (config.db.authMode === 'windows') {
+    // mssql only honors these as top-level keys; inside `options` the
+    // msnodesqlv8 driver ignores them and queries die at the 15s default.
     return {
       connectionString: buildWindowsConnectionString(),
+      connectionTimeout: config.db.connectTimeoutMs,
+      requestTimeout: config.db.requestTimeoutMs,
       options: {
         trustedConnection: true,
-        connectTimeout: config.db.connectTimeoutMs,
-        requestTimeout: config.db.requestTimeoutMs,
       },
     };
   }

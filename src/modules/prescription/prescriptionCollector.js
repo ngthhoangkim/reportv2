@@ -76,16 +76,9 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
       ${progressPredicate(pid)}
       AND EXISTS (
         SELECT 1
-        FROM dbo.ViewRX rx WITH (NOLOCK)
-        WHERE rx.DeletedDate IS NULL
-          AND (
-            rx.ProgressID = vp.Id
-            OR (
-              (rx.ProgressID IS NULL OR rx.ProgressID = 0)
-              AND rx.SubSessionId = vp.SubSessionId
-              AND (rx.DoctorId = vp.DoctorId OR vp.DoctorId IS NULL)
-            )
-          )
+        FROM dbo.CN_Prescription pr WITH (NOLOCK)
+        WHERE pr.DeletedDate IS NULL
+          AND pr.ProgressID = vp.Id
       )
     ORDER BY vp.Id ASC
     `,
@@ -217,7 +210,7 @@ async function collectManagementFallback(sessionId) {
 
 function mapMedication(row, index) {
   const itemName = cleanText(firstValue(row, ['ItemName', 'Name', 'Item', 'ITEM']));
-  const property = cleanText(firstValue(row, ['Property', 'Ingredient', 'ActiveIngredient']));
+  const property = cleanText(firstValue(row, ['Property', 'RxProperty', 'Ingredient', 'ActiveIngredient']));
   const note = cleanText(firstValue(row, ['Note', 'UsageNote', 'Comment', 'Reason', 'REASON']));
   const instructions = cleanText(firstValue(row, ['Instructions', 'INSTRUCTIONS', 'Instruction', 'Usage', 'CachDung']));
   const dose = cleanText(firstValue(row, ['Dosage', 'Dose', 'DOSE', 'QuantityUsage']));
@@ -241,35 +234,39 @@ function mapMedication(row, index) {
   };
 }
 
-async function collectMedications({ sessionId, progressId, subSessionId, doctorId }) {
-  const rows = await db.query(
+async function collectMedicationsFromPrescriptions({ progressId, subSessionId }) {
+  return db.query(
     `
     SELECT
-      rx.*,
+      pr.RxId AS ID,
       pr.ID AS PrescriptionRowId,
-      pr.ScriptNo
-    FROM dbo.ViewRX rx WITH (NOLOCK)
-    OUTER APPLY (
-      SELECT TOP 1 ID, ScriptNo
-      FROM dbo.CN_Prescription pr WITH (NOLOCK)
-      WHERE pr.RxId = rx.ID
-        AND pr.DeletedDate IS NULL
-      ORDER BY pr.ID DESC
-    ) pr
-    WHERE rx.DeletedDate IS NULL
-      AND rx.SessionId = @sessionId
-      AND (
-        rx.ProgressID = @progressId
-        OR (
-          (rx.ProgressID IS NULL OR rx.ProgressID = 0)
-          AND rx.SubSessionId = @subSessionId
-          AND (rx.DoctorId = @doctorId OR @doctorId IS NULL)
-        )
-      )
-    ORDER BY rx.CreatedDate ASC, rx.ID ASC
+      pr.ScriptNo,
+      pr.ITEM,
+      pr.DOSE,
+      pr.UnitUsage,
+      pr.FREQUENCY,
+      pr.INSTRUCTIONS,
+      pr.QUANTITY,
+      pr.REPEATS,
+      pr.REASON,
+      pr.CreatedDate,
+      pr.UNITNAME,
+      pr.Usage,
+      pr.Property,
+      rx.Property AS RxProperty
+    FROM dbo.CN_Prescription pr WITH (NOLOCK)
+    LEFT JOIN dbo.ViewRX rx WITH (NOLOCK) ON rx.ID = pr.RxId
+    WHERE pr.DeletedDate IS NULL
+      AND pr.ProgressID = @progressId
+      AND (@subSessionId IS NULL OR pr.SubSessionId = @subSessionId)
+    ORDER BY pr.CreatedDate ASC, pr.ID ASC
     `,
-    { sessionId, progressId, subSessionId, doctorId },
+    { progressId, subSessionId },
   );
+}
+
+async function collectMedications(progress) {
+  const rows = await collectMedicationsFromPrescriptions(progress);
   const seen = new Set();
   return rows
     .filter((row) => {
