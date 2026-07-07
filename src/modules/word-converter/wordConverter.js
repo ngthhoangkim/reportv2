@@ -212,8 +212,8 @@ try {
 
   function Is-MedicationScaffold([string]$text) {
     if ($null -eq $text) { return $false }
-    return $text -match '<\s*(#|SL|U|ItemName|Note|Q|F)\s*>' -or
-      $text -match '^\s*\d+\s*/\s*$' -or
+    return $text -match '<\\s*(#|SL|U|ItemName|Note|Q|F)\\s*>' -or
+      $text -match '^\\s*\\d+\\s*/\\s*$' -or
       $text -match 'Ngày' -or
       $text -match 'mỗi lần'
   }
@@ -223,7 +223,7 @@ try {
     $paragraphs = $document.Paragraphs
     for ($i = 1; $i -le $paragraphs.Count; $i++) {
       $text = [string]$paragraphs.Item($i).Range.Text
-      if ($text -notmatch '<\s*(#|ItemName|SL|Q|F)\s*>') { continue }
+      if ($text -notmatch '<\\s*(#|ItemName|SL|Q|F)\\s*>') { continue }
 
       $startIndex = $i
       while ($startIndex -gt 1) {
@@ -266,59 +266,56 @@ try {
     Relax-RangeFrames $range 18 0 0
   }
 
-  function Compact-RxLine($row) {
-    $name = [string]$row.compactName
-    if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$row.itemName }
-    $head = (([string]$row.index + ' ' + $name).Trim())
+  function Rx-ItemName($row) {
+    $name = [string]$row.itemName
+    if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$row.compactName }
+    return $name
+  }
+
+  function Rx-DetailLine($row) {
     $parts = @()
-    if (-not [string]::IsNullOrWhiteSpace([string]$row.quantity)) { $parts += [string]$row.quantity }
     if (-not [string]::IsNullOrWhiteSpace([string]$row.frequency)) { $parts += ('Ngày ' + [string]$row.frequency) }
     if (-not [string]::IsNullOrWhiteSpace([string]$row.dose)) { $parts += ('mỗi lần ' + [string]$row.dose) }
     if (-not [string]::IsNullOrWhiteSpace([string]$row.note)) { $parts += [string]$row.note }
-    if ($parts.Count -gt 0) { return $head + ' - ' + ($parts -join ', ') }
-    return $head
+    return ($parts -join ', ')
   }
 
-  function Wrap-RxLine([string]$line, [int]$maxChars) {
-    if ([string]::IsNullOrWhiteSpace($line) -or $line.Length -le $maxChars) {
-      return @($line)
-    }
-    $words = $line -split '\s+'
-    $wrapped = @()
-    $current = ''
-    foreach ($word in $words) {
-      if ([string]::IsNullOrWhiteSpace($current)) {
-        $current = $word
-        continue
-      }
-      if (($current.Length + 1 + $word.Length) -gt $maxChars) {
-        $wrapped += $current
-        $current = '   ' + $word
-      } else {
-        $current += ' ' + $word
-      }
-    }
-    if (-not [string]::IsNullOrWhiteSpace($current)) {
-      $wrapped += $current
-    }
-    return $wrapped
-  }
-
-  function Compact-RxBlock($rows) {
+  function Rx-BlockLines($rows) {
+    $tab = [string][char]9
     $lines = @()
     foreach ($row in @($rows)) {
-      $line = Compact-RxLine $row
-      if (-not [string]::IsNullOrWhiteSpace($line)) {
-        $lines += Wrap-RxLine $line 82
+      $head = (([string]$row.index + ' ' + (Rx-ItemName $row)).Trim())
+      if (-not [string]::IsNullOrWhiteSpace([string]$row.quantity)) {
+        $head += $tab + [string]$row.quantity
+      }
+      $lines += $head
+      $detail = Rx-DetailLine $row
+      if (-not [string]::IsNullOrWhiteSpace($detail)) {
+        $lines += ('    ' + $detail)
       }
     }
     return $lines -join ([string][char]13)
   }
 
+  function Apply-RxDotLeaderTabs($range) {
+    $tab = [string][char]9
+    $frameWidth = 430
+    try {
+      if ($range.Frames.Count -gt 0) { $frameWidth = $range.Frames.Item(1).Width }
+    } catch { }
+    $tabPos = [Math]::Max(120, $frameWidth - 8)
+    foreach ($para in $range.Paragraphs) {
+      if (([string]$para.Range.Text).Contains($tab)) {
+        $para.TabStops.ClearAll()
+        $para.TabStops.Add($tabPos, 2, 1) | Out-Null
+      }
+    }
+  }
+
   function Find-RxStartParagraphIndex($paragraphs) {
     for ($i = 1; $i -le $paragraphs.Count; $i++) {
       $text = [string]$paragraphs.Item($i).Range.Text
-      if ($text -match '<\s*#\s*>') { return $i }
+      if ($text -match '<\\s*#\\s*>') { return $i }
     }
     return 0
   }
@@ -342,11 +339,12 @@ try {
       $endIndex = [Math]::Min($paragraphs.Count, $startIndex + 7)
       $rangeStart = $paragraphs.Item($startIndex).Range.Start
       $range = $document.Range($rangeStart, $paragraphs.Item($endIndex).Range.End)
-      $wordText = (Normalize-WordText (Compact-RxBlock $rows)) + ([string][char]13)
+      $wordText = (Normalize-WordText (Rx-BlockLines $rows)) + ([string][char]13)
       $range.Text = $wordText
       $insertedEnd = [Math]::Min($document.Content.End, $rangeStart + $wordText.Length)
       $inserted = $document.Range($rangeStart, $insertedEnd)
       Apply-CompactParagraphFormat $inserted 10.5 12.6 390 430 42
+      Apply-RxDotLeaderTabs $inserted
       return
     }
 
