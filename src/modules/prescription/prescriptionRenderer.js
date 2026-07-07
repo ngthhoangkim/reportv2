@@ -270,14 +270,16 @@ function buildWordReplacements(data, options = {}) {
   }
 
   replacements.push(tokenReplacement('Conclusion', role === 'back' ? data.BackConclusion : data.Conclusion));
-  if (role === 'front') {
-    replacements.push({ kind: 'medicationRows', rows: medicationRowsForWord(data) });
-  }
 
   for (const [token, field] of TOKEN_ALIASES.entries()) {
     if (['PatientID', 'Conclusion', '#'].includes(token)) continue;
     if (MEDICATION_SCAFFOLD_TOKENS.has(token)) continue;
     replacements.push(tokenReplacement(token, field ? data[field] : ''));
+  }
+  // Medication rows go last: the renderer measures where the filled-in
+  // diagnosis text ends before laying out the medication list under it.
+  if (role === 'front') {
+    replacements.push({ kind: 'medicationRows', rows: medicationRowsForWord(data) });
   }
   return replacements;
 }

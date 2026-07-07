@@ -180,6 +180,7 @@ try {
       $range.Text = $wordText
       if ($findText -match 'Conclusion|ChanDoan') {
         Apply-CompactParagraphFormat $range 10.5 11 0 0 0
+        $script:RxDiagnosisEnd = $range.End
       }
       $count += 1
       if ($once) { return $count }
@@ -340,22 +341,35 @@ try {
       $bottomLimit = $pageHeight - 110
       if ($null -ne $footerY) { $bottomLimit = $footerY - 8 }
 
-      $available = [Math]::Max(120.0, $bottomLimit - $minY)
+      # The diagnosis can run longer than its template slot and spill down
+      # over the first medication line. Ask Word where the filled-in
+      # diagnosis actually ends and start the list below it.
+      $topY = $minY
+      try {
+        if ($null -ne $script:RxDiagnosisEnd) {
+          $probe = $document.Range($script:RxDiagnosisEnd - 1, $script:RxDiagnosisEnd - 1)
+          $diagBottom = [double]$probe.Information(6) + 13
+          if ($diagBottom -gt $topY) { $topY = $diagBottom + 5 }
+          if ($topY -gt ($minY + 80)) { $topY = $minY + 80 }
+        }
+      } catch { }
+
+      $available = [Math]::Max(120.0, $bottomLimit - $topY)
       $step = [Math]::Floor($available / $rowCount)
       if ($step -gt 44) { $step = 44.0 }
       if ($step -lt 24) { $step = 24.0 }
       # line 2 sits a fixed distance under line 1; whatever remains of the
       # step becomes the visible gap between consecutive items. When space is
       # tight, shrink the type so the gap stays visible.
-      if ($step -ge 34) {
+      if ($step -ge 36) {
         $fontSize = 10.5
-        $lineOffset = 14.0
+        $lineOffset = 15.0
       } elseif ($step -ge 31) {
         $fontSize = 9.5
-        $lineOffset = 12.5
+        $lineOffset = 13.5
       } else {
         $fontSize = 9.0
-        $lineOffset = 11.0
+        $lineOffset = 12.0
       }
 
       $scafStart = $paragraphs.Item($startIndex).Range.Start
@@ -393,7 +407,7 @@ try {
               $lineY = 0.0
               if (($frameY[$o] - $minY) -gt 2) { $lineY = $lineOffset }
               try { $frame.HeightRule = 0 } catch { }
-              $frame.VerticalPosition = $minY + ($b * $step) + $lineY
+              $frame.VerticalPosition = $topY + ($b * $step) + $lineY
             } catch { }
           }
         }
