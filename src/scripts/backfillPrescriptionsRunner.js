@@ -10,8 +10,7 @@ function dayRange(date) {
 }
 
 async function candidatesForRange(from, to) {
-  const all = await collectCandidatesSince(from, ['prescription']);
-  return all.filter((c) => !c.lastChangedAt || new Date(c.lastChangedAt) <= to);
+  return collectCandidatesSince(from, ['prescription'], to);
 }
 
 function failedCandidates() {

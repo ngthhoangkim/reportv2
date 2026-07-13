@@ -10,11 +10,16 @@ function mapCandidate(row) {
   };
 }
 
-async function collectCandidatesSince(fromDate, types = null) {
+function upperBound(predicate, toDate) {
+  return toDate ? `AND ${predicate} <= @toDate` : '';
+}
+
+async function collectCandidatesSince(fromDate, types = null, toDate = null) {
   const enabled = new Set(types && types.length ? types : ['cdha', 'cn_files', 'prescription']);
   const queries = [];
 
   if (enabled.has('cdha') || enabled.has('pacs')) {
+    const changedAt = 'COALESCE(r.UpdatedDate, r.FinishDate, r.CreatedDate)';
     queries.push(`
       SELECT DISTINCT
         v.FileNum,
@@ -25,12 +30,14 @@ async function collectCandidatesSince(fromDate, types = null) {
       FROM dbo.CN_ImagingResult r WITH (NOLOCK)
       INNER JOIN dbo.ViewImagingResult v WITH (NOLOCK) ON v.Id = r.Id
       WHERE r.DeletedDate IS NULL
-        AND COALESCE(r.UpdatedDate, r.FinishDate, r.CreatedDate) >= @fromDate
+        AND ${changedAt} >= @fromDate
+        ${upperBound(changedAt, toDate)}
       GROUP BY v.FileNum, v.SessionId
     `);
   }
 
   if (enabled.has('cn_files')) {
+    const changedAt = 'COALESCE(f.UpdatedDate, f.CreatedDate, f.DateEntered, f.DocDate)';
     queries.push(`
       SELECT DISTINCT
         p.FileNum,
@@ -42,7 +49,8 @@ async function collectCandidatesSince(fromDate, types = null) {
       INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = f.PatientID
       LEFT JOIN dbo.CR_SubSession ss WITH (NOLOCK) ON ss.Id = f.SubSessionId
       WHERE f.DeletedDate IS NULL
-        AND COALESCE(f.UpdatedDate, f.CreatedDate, f.DateEntered, f.DocDate) >= @fromDate
+        AND ${changedAt} >= @fromDate
+        ${upperBound(changedAt, toDate)}
       GROUP BY p.FileNum, ss.SessionId
     `);
   }
@@ -59,13 +67,15 @@ async function collectCandidatesSince(fromDate, types = null) {
       INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = rx.PatientID
       WHERE rx.DeletedDate IS NULL
         AND rx.CreatedDate >= @fromDate
+        ${upperBound('rx.CreatedDate', toDate)}
       GROUP BY p.FileNum, rx.SessionId, rx.ProgressID
     `);
   }
 
   if (!queries.length) return [];
   const sql = queries.join('\nUNION ALL\n');
-  const rows = await db.query(sql, { fromDate });
+  const params = toDate ? { fromDate, toDate } : { fromDate };
+  const rows = await db.query(sql, params);
   const seen = new Map();
   for (const row of rows.map(mapCandidate).filter((r) => r.fileNum)) {
     const key = row.source === 'prescription'

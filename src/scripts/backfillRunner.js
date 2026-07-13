@@ -17,8 +17,7 @@ function dayRange(date) {
 }
 
 async function candidatesForRange(from, to, types) {
-  const all = await collectCandidatesSince(from, types);
-  return all.filter((c) => !c.lastChangedAt || new Date(c.lastChangedAt) <= to);
+  return collectCandidatesSince(from, types, to);
 }
 
 function failedCandidates() {
