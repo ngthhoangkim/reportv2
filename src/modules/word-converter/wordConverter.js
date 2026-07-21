@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
 const logger = require('../logging/logger');
+const comLock = require('../state/comLock');
 
 let queue = Promise.resolve();
 
@@ -452,7 +453,16 @@ try {
 }
 
 function enqueue(task) {
-  const run = queue.then(task, task);
+  // queue: nối tiếp trong cùng process. comLock: chặn process khác dùng Word COM cùng lúc.
+  const guarded = async () => {
+    const release = await comLock.acquire('word-convert');
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  };
+  const run = queue.then(guarded, guarded);
   queue = run.catch(() => {});
   return run;
 }
@@ -487,6 +497,8 @@ async function convertDocToDocxCached(docPath) {
 module.exports = {
   convertDocxToPdf,
   convertDocToDocxCached,
-  renderWordTemplateToPdf,
+  renderWordTemplateToPdf: (templatePath, pdfPath, replacements) => (
+    enqueue(() => renderWordTemplateToPdf(templatePath, pdfPath, replacements))
+  ),
   enqueue,
 };

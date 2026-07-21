@@ -69,6 +69,53 @@ npm run service:stop
 
 Task Scheduler chạy bằng Windows user đang login để Word COM có profile người dùng.
 
+## Chạy bằng PM2
+
+Hai app trong `ecosystem.config.js`:
+
+| App | Việc | autorestart |
+| --- | --- | --- |
+| `reportv2` | Server + worker realtime (dữ liệu mới) | `true` |
+| `reportv2-backfill` | Backfill quá khứ theo từng tháng | `false` (bắt buộc) |
+
+Realtime:
+
+```bash
+pm2 start ecosystem.config.js --only reportv2
+pm2 logs reportv2
+pm2 save
+```
+
+Backfill quá khứ (sửa `BACKFILL_FROM` / `BACKFILL_TO` trong `ecosystem.config.js` trước):
+
+```bash
+pm2 start ecosystem.config.js --only reportv2-backfill
+pm2 logs reportv2-backfill
+```
+
+Backfill chạy **từng tháng một, mới nhất trước**, ghi tiến độ vào `data/state/backfill-cursor.json`
+sau mỗi tháng. Dừng giữa chừng rồi start lại thì nó bỏ qua các tháng đã xong. Một tháng lỗi
+không chặn các tháng còn lại — lỗi được ghi vào cursor, chạy lại với `--retry-failed`.
+
+Chạy tay không qua PM2:
+
+```bash
+npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30
+npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30 --retry-failed
+npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30 --reset       # bỏ cursor, chạy lại từ đầu
+npm run backfill:chunked -- --from 2024-01-01 --to 2024-12-31 --oldest-first
+```
+
+Cờ: `--types cdha,prescription`, `--force` (làm lại cả case đã có), `--upload false`.
+
+### Word COM lock
+
+Word chỉ cho một instance automation trên mỗi phiên Windows. Hai process cùng gọi Word COM sẽ
+gây `RPC_E_CALL_REJECTED` / Word treo. Vì vậy mọi lần dùng Word đều phải giành lock file
+`data/state/word-com.lock` ([comLock.js](src/modules/state/comLock.js)): realtime và backfill tự
+xen kẽ nhau ở mức từng case, không cần tắt cái nào. Lock có heartbeat 5s, process chết đột ngột
+thì process sau tự thu hồi.
+
 ## Logs And State
 
 Logs JSONL nằm trong `logs/`:
@@ -83,6 +130,8 @@ Logs JSONL nằm trong `logs/`:
 State local nằm trong `data/state/`:
 
 - `source-snapshots.json`
+- `backfill-cursor.json` (tiến độ backfill theo tháng)
+- `word-com.lock` (lock Word COM, tự xoá khi nhả)
 - `generated-files.jsonl`
 - `failed-jobs.jsonl`
 - `failed-uploads.jsonl`

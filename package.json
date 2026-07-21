@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "backfill": "node src/scripts/backfill.js",
+    "backfill:chunked": "node src/scripts/backfillChunked.js",
     "backfill:prescriptions": "node src/scripts/backfillPrescriptions.js",
     "generate:prescription": "node src/scripts/generatePrescription.js",
     "service:install": "powershell.exe -ExecutionPolicy Bypass -File src/scripts/install-task.ps1",

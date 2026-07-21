@@ -20,7 +20,8 @@ function readJson(name, fallback) {
 
 function writeJson(name, value) {
   const file = statePath(name);
-  const tmp = `${file}.tmp`;
+  // tmp phải riêng theo process, nếu không hai process sẽ ghi đè tmp của nhau rồi rename nhầm.
+  const tmp = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
   fs.renameSync(tmp, file);
 }
