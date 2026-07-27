@@ -31,8 +31,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         WORKER_ENABLED: 'false',
-        BACKFILL_FROM: '2022-07-01',
-        BACKFILL_TO: '2025-06-30',
+        BACKFILL_FROM: '2022-01-01',
+        BACKFILL_TO: '2026-07-26',
         BACKFILL_UPLOAD: 'true',
         BACKFILL_FORCE: 'false',
       },
