@@ -47,61 +47,57 @@ async function cleanupStaleRenderDirs(maxAgeMs = TMP_STALE_MS) {
   await cleanupStaleOutputFiles(maxAgeMs);
 }
 
-async function cleanupStaleOutputFiles(maxAgeMs = OUTPUT_STALE_MS) {
+// Duyệt đệ quy mọi file trong output (kể cả subfolder như prescriptions/),
+// xóa file nào predicate trả về true. Trả về { removed, errors }.
+async function removeOutputFilesWhere(predicate) {
   const outputDir = config.paths.output;
-  if (!fs.existsSync(outputDir)) return;
-  let entries;
-  try {
-    entries = await fs.promises.readdir(outputDir);
-  } catch {
-    return;
-  }
-  const cutoff = Date.now() - maxAgeMs;
+  if (!fs.existsSync(outputDir)) return { removed: 0, errors: 0 };
   let removed = 0;
-  for (const entry of entries) {
-    const fullPath = path.join(outputDir, entry);
+  let errors = 0;
+  async function walk(dir) {
+    let entries;
     try {
-      const stat = await fs.promises.stat(fullPath);
-      if (stat.isFile() && stat.mtimeMs < cutoff) {
-        await fs.promises.rm(fullPath, { force: true });
-        removed++;
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else if (entry.isFile()) {
+          const stat = await fs.promises.stat(fullPath);
+          if (predicate(stat)) {
+            await fs.promises.rm(fullPath, { force: true });
+            removed++;
+          }
+        }
+      } catch (err) {
+        console.warn('[paths] output file cleanup failed', fullPath, err.message);
+        errors++;
       }
-    } catch (err) {
-      console.warn('[paths] stale output file cleanup failed', fullPath, err.message);
     }
   }
+  await walk(outputDir);
+  return { removed, errors };
+}
+
+async function cleanupStaleOutputFiles(maxAgeMs = OUTPUT_STALE_MS) {
+  const cutoff = Date.now() - maxAgeMs;
+  const { removed } = await removeOutputFilesWhere((stat) => stat.mtimeMs < cutoff);
   if (removed > 0) console.log(`[paths] stale output files removed: ${removed}`);
 }
 
 async function cleanupOutputByDateRange(from, to) {
-  const outputDir = config.paths.output;
-  if (!fs.existsSync(outputDir)) return { removed: 0, errors: 0 };
-  let entries;
-  try {
-    entries = await fs.promises.readdir(outputDir);
-  } catch {
-    return { removed: 0, errors: 0 };
-  }
   const fromMs = from ? new Date(from).getTime() : 0;
   const toMs = to ? new Date(to).getTime() : Date.now();
   if (isNaN(fromMs) || isNaN(toMs)) throw new Error('Invalid date range');
-  let removed = 0;
-  let errors = 0;
-  for (const entry of entries) {
-    const fullPath = path.join(outputDir, entry);
-    try {
-      const stat = await fs.promises.stat(fullPath);
-      if (stat.isFile() && stat.mtimeMs >= fromMs && stat.mtimeMs <= toMs) {
-        await fs.promises.rm(fullPath, { force: true });
-        removed++;
-      }
-    } catch (err) {
-      console.warn('[paths] output cleanup by date range failed', fullPath, err.message);
-      errors++;
-    }
-  }
-  console.log(`[paths] output cleanup by date range [${from} → ${to}]: removed=${removed} errors=${errors}`);
-  return { removed, errors };
+  const result = await removeOutputFilesWhere(
+    (stat) => stat.mtimeMs >= fromMs && stat.mtimeMs <= toMs,
+  );
+  console.log(`[paths] output cleanup by date range [${from} → ${to}]: removed=${result.removed} errors=${result.errors}`);
+  return result;
 }
 
 // Xóa toàn bộ khi startup — mọi thư mục còn sót là rác từ lần chạy trước
