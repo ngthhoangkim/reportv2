@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { config } = require('./env');
-const logger = require('../modules/logging/logger');
 
 const TMP_RENDER_SUBDIRS = ['cdha-items', 'cdha-render'];
 const TMP_STALE_MS = 2 * 60 * 60 * 1000; // 2 giờ
@@ -37,10 +36,10 @@ async function cleanupStaleRenderDirs(maxAgeMs = TMP_STALE_MS) {
         const stat = await fs.promises.stat(fullPath);
         if (stat.isDirectory() && stat.mtimeMs < cutoff) {
           await fs.promises.rm(fullPath, { recursive: true, force: true });
-          logger.app('info', 'stale render dir removed', { path: fullPath });
+          console.log('[paths] stale render dir removed', fullPath);
         }
       } catch (err) {
-        logger.app('warn', 'stale render dir cleanup failed', { path: fullPath, error: err.message });
+        console.warn('[paths] stale render dir cleanup failed', fullPath, err.message);
       }
     }
   }
@@ -61,9 +60,9 @@ async function cleanupRenderDirsOnStartup() {
       const fullPath = path.join(parent, entry);
       try {
         await fs.promises.rm(fullPath, { recursive: true, force: true });
-        logger.app('info', 'startup render dir removed', { path: fullPath });
+        console.log('[paths] startup render dir removed', fullPath);
       } catch (err) {
-        logger.app('warn', 'startup render dir cleanup failed', { path: fullPath, error: err.message });
+        console.warn('[paths] startup render dir cleanup failed', fullPath, err.message);
       }
     }
   }
