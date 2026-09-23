@@ -26,7 +26,7 @@ function progressPredicate(progressId) {
 }
 
 function sessionPredicate(sessionId) {
-  return sessionId != null ? 'AND vs.Id = @sessionId' : '';
+  return sessionId != null ? 'AND s.Id = @sessionId' : '';
 }
 
 function joinAddressParts(parts, separator = ' ') {
@@ -63,14 +63,13 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
       cp.PathologyResult AS MainDisease,
       cp.VisitDate,
       cp.FinishDate,
-      vs.Id AS SessionId,
+      s.Id AS SessionId,
       p.FileNum,
-      vs.CardCode
+      '' AS CardCode
     FROM dbo.CN_Progress cp WITH (NOLOCK)
     INNER JOIN dbo.CR_SubSession ss WITH (NOLOCK) ON ss.Id = cp.SubSessionId
     INNER JOIN dbo.CR_Session s WITH (NOLOCK) ON s.Id = ss.SessionId
     INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = s.PatientID
-    INNER JOIN dbo.ViewSession vs WITH (NOLOCK) ON vs.Id = ss.SessionId
     WHERE LTRIM(RTRIM(CONVERT(VARCHAR(50), p.FileNum))) = LTRIM(RTRIM(@fileNum))
       ${sessionPredicate(sid)}
       ${progressPredicate(pid)}
