@@ -22,7 +22,7 @@ async function optionalQuery(sql, params, fallback = []) {
 }
 
 function progressPredicate(progressId) {
-  return progressId != null ? 'AND vp.Id = @progressId' : '';
+  return progressId != null ? 'AND cp.Id = @progressId' : '';
 }
 
 function sessionPredicate(sessionId) {
@@ -55,19 +55,19 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
   const rows = await db.query(
     `
     SELECT
-      vp.Id AS ProgressId,
+      cp.Id AS ProgressId,
       s.PatientID,
-      vp.SubSessionId,
-      vp.DoctorId,
-      vp.DoctorName,
-      vp.MainDisease,
-      vp.VisitDate,
-      vp.FinishDate,
+      cp.SubSessionId,
+      cp.DoctorId,
+      cp.DoctorName,
+      cp.PathologyResult AS MainDisease,
+      cp.VisitDate,
+      cp.FinishDate,
       vs.Id AS SessionId,
       p.FileNum,
       vs.CardCode
-    FROM dbo.ViewProgress vp WITH (NOLOCK)
-    INNER JOIN dbo.CR_SubSession ss WITH (NOLOCK) ON ss.Id = vp.SubSessionId
+    FROM dbo.CN_Progress cp WITH (NOLOCK)
+    INNER JOIN dbo.CR_SubSession ss WITH (NOLOCK) ON ss.Id = cp.SubSessionId
     INNER JOIN dbo.CR_Session s WITH (NOLOCK) ON s.Id = ss.SessionId
     INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = s.PatientID
     INNER JOIN dbo.ViewSession vs WITH (NOLOCK) ON vs.Id = ss.SessionId
@@ -78,9 +78,9 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
         SELECT 1
         FROM dbo.CN_Prescription pr WITH (NOLOCK)
         WHERE pr.DeletedDate IS NULL
-          AND pr.ProgressID = vp.Id
+          AND pr.ProgressID = cp.Id
       )
-    ORDER BY vp.Id ASC
+    ORDER BY cp.Id ASC
     `,
     { fileNum: cleanFileNum, sessionId: sid, progressId: pid },
   );
@@ -255,7 +255,7 @@ async function collectMedicationsFromPrescriptions({ progressId, subSessionId })
       pr.Property,
       rx.Property AS RxProperty
     FROM dbo.CN_Prescription pr WITH (NOLOCK)
-    LEFT JOIN dbo.ViewRX rx WITH (NOLOCK) ON rx.ID = pr.RxId
+    LEFT JOIN dbo.CN_RX rx WITH (NOLOCK) ON rx.ID = pr.RxId
     WHERE pr.DeletedDate IS NULL
       AND pr.ProgressID = @progressId
       AND (@subSessionId IS NULL OR pr.SubSessionId = @subSessionId)
