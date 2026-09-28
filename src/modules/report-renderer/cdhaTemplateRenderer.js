@@ -5,7 +5,11 @@ const Docxtemplater = require('docxtemplater');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
 const logger = require('../logging/logger');
-const { collectImagingRenderRecords, collectPathologyImages } = require('../case-collector/collector');
+const {
+  collectImagingRenderRecords,
+  collectPathologyImages,
+  collectPathologyImagesByResultIds,
+} = require('../case-collector/collector');
 const {
   resolveFile,
   extractImagesFromArchiveOrRawV1,
@@ -111,7 +115,22 @@ async function renderRecordDocx(record, templatePath, segmentIndex, workDir) {
   return out;
 }
 
-async function renderRecordPdfSegment(record, segmentIndex, workDir) {
+async function cleanupWorkDir(workDir) {
+  if (!workDir) return;
+  try {
+    await fs.promises.rm(workDir, { recursive: true, force: true });
+    logger.job('info', 'render work dir cleaned', { workDir });
+  } catch (err) {
+    logger.job('warn', 'render work dir cleanup failed', { workDir, error: err.message });
+  }
+}
+
+async function collectPathologyImagesForRecords(records) {
+  const ids = (records || []).map((record) => record.imagingResultId).filter((id) => id != null);
+  return collectPathologyImagesByResultIds(ids, config.media.printedImagesOnly);
+}
+
+async function renderRecordPdfSegment(record, segmentIndex, workDir, pathologyImagesByResultId = null) {
   const templatePath = selectTemplate(config.paths.templates, record.templateFile, record.pathologyType, 0);
   if (!templatePath) {
     return {
@@ -138,7 +157,7 @@ async function renderRecordPdfSegment(record, segmentIndex, workDir) {
     throw new Error(`Word did not create PDF: ${pdfPath}`);
   }
 
-  const images = await resolveRecordImages(record, workDir, segmentIndex);
+  const images = await resolveRecordImages(record, workDir, segmentIndex, pathologyImagesByResultId);
   return {
     ok: true,
     pdfPath,
@@ -152,8 +171,11 @@ async function renderRecordPdfSegment(record, segmentIndex, workDir) {
   };
 }
 
-async function resolveRecordImages(record, workDir, segmentIndex) {
-  const rows = await collectPathologyImages(record.imagingResultId, config.media.printedImagesOnly);
+async function resolveRecordImages(record, workDir, segmentIndex, pathologyImagesByResultId = null) {
+  const key = Number(record.imagingResultId);
+  const rows = pathologyImagesByResultId
+    ? (pathologyImagesByResultId.get(key) || [])
+    : await collectPathologyImages(record.imagingResultId, config.media.printedImagesOnly);
   const archiveFiles = await resolveRecordArchiveFiles(record, workDir, segmentIndex);
   const resolved = [];
   const missing = [];
@@ -296,55 +318,60 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
   const workDir = path.join(config.paths.tmpDir, 'cdha-render', `${fileNum}_${sessionId || 'all'}_${Date.now()}`);
   ensureDir(workDir);
 
-  const mergeInputs = [];
-  const skipped = [];
-  const imageStats = [];
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    try {
-      const rendered = await renderRecordPdfSegment(record, i, workDir);
-      if (!rendered.ok) {
-        skipped.push(rendered.skipped);
-        logger.job('warn', 'cdha template missing', rendered.skipped);
-        continue;
+  try {
+    const pathologyImagesByResultId = await collectPathologyImagesForRecords(records);
+    const mergeInputs = [];
+    const skipped = [];
+    const imageStats = [];
+    for (let i = 0; i < records.length; i += 1) {
+      const record = records[i];
+      try {
+        const rendered = await renderRecordPdfSegment(record, i, workDir, pathologyImagesByResultId);
+        if (!rendered.ok) {
+          skipped.push(rendered.skipped);
+          logger.job('warn', 'cdha template missing', rendered.skipped);
+          continue;
+        }
+        mergeInputs.push(rendered.pdfPath, ...rendered.imageFiles);
+        imageStats.push(rendered.imageStats);
+        logger.job('info', 'cdha render segment completed', { imagingResultId: record.imagingResultId, pdfPath: rendered.pdfPath });
+      } catch (err) {
+        const item = {
+          imagingResultId: record.imagingResultId,
+          templateFile: record.templateFile,
+          error: err.message,
+        };
+        skipped.push(item);
+        logger.job('error', 'cdha render segment failed', item);
       }
-      mergeInputs.push(rendered.pdfPath, ...rendered.imageFiles);
-      imageStats.push(rendered.imageStats);
-      logger.job('info', 'cdha render segment completed', { imagingResultId: record.imagingResultId, pdfPath: rendered.pdfPath });
-    } catch (err) {
-      const item = {
-        imagingResultId: record.imagingResultId,
-        templateFile: record.templateFile,
-        error: err.message,
-      };
-      skipped.push(item);
-      logger.job('error', 'cdha render segment failed', item);
     }
+
+    const pacs = await collectPacsFiles(caseData, workDir);
+    mergeInputs.push(...pacs.files);
+
+    const cn = cnFilesToMergeFiles(mediaSummary);
+    mergeInputs.push(...cn.files);
+
+    if (!mergeInputs.length) {
+      return { ok: false, reason: 'no_template_segments_rendered', skipped, workDir };
+    }
+
+    ensureDir(path.dirname(outputPath));
+    const merge = await mergeFilesToPdf(mergeInputs, outputPath, { withDetails: true });
+    return {
+      ok: true,
+      outputPath,
+      segmentCount: records.length - skipped.length,
+      appendedImagePages: imageStats.reduce((sum, item) => sum + item.appendedImages, 0),
+      appendedPacsPdfs: pacs.files.length,
+      appendedCnFiles: cn.files.length,
+      skipped: skipped.concat(pacs.skipped, cn.skipped, merge.skipped || []),
+      imageStats,
+      workDir,
+    };
+  } finally {
+    await cleanupWorkDir(workDir);
   }
-
-  const pacs = await collectPacsFiles(caseData, workDir);
-  mergeInputs.push(...pacs.files);
-
-  const cn = cnFilesToMergeFiles(mediaSummary);
-  mergeInputs.push(...cn.files);
-
-  if (!mergeInputs.length) {
-    return { ok: false, reason: 'no_template_segments_rendered', skipped };
-  }
-
-  ensureDir(path.dirname(outputPath));
-  const merge = await mergeFilesToPdf(mergeInputs, outputPath, { withDetails: true });
-  return {
-    ok: true,
-    outputPath,
-    segmentCount: records.length - skipped.length,
-    appendedImagePages: imageStats.reduce((sum, item) => sum + item.appendedImages, 0),
-    appendedPacsPdfs: pacs.files.length,
-    appendedCnFiles: cn.files.length,
-    skipped: skipped.concat(pacs.skipped, cn.skipped, merge.skipped || []),
-    imageStats,
-    workDir,
-  };
 }
 
 async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir }) {
@@ -360,69 +387,74 @@ async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir }) {
   ensureDir(workDir);
   ensureDir(outputDir);
 
-  const files = [];
-  const skipped = [];
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    if (!record.fileName || !String(record.fileName).trim()) {
-      const item = {
-        imagingResultId: record.imagingResultId,
-        serviceName: record.serviceName,
-        reason: 'missing_file_name',
-      };
-      skipped.push(item);
-      logger.job('warn', 'cdha item skipped', item);
-      continue;
-    }
-
-    const fileName = resolveCdhaRecordPdfFileName(record);
-    const outputPath = path.join(outputDir, fileName);
-    try {
-      const rendered = await renderRecordPdfSegment(record, i, workDir);
-      if (!rendered.ok) {
-        skipped.push(rendered.skipped);
-        logger.job('warn', 'cdha item skipped', rendered.skipped);
+  try {
+    const pathologyImagesByResultId = await collectPathologyImagesForRecords(records);
+    const files = [];
+    const skipped = [];
+    for (let i = 0; i < records.length; i += 1) {
+      const record = records[i];
+      if (!record.fileName || !String(record.fileName).trim()) {
+        const item = {
+          imagingResultId: record.imagingResultId,
+          serviceName: record.serviceName,
+          reason: 'missing_file_name',
+        };
+        skipped.push(item);
+        logger.job('warn', 'cdha item skipped', item);
         continue;
       }
 
-      const merge = await mergeFilesToPdf(
-        [rendered.pdfPath, ...rendered.imageFiles],
-        outputPath,
-        { withDetails: true },
-      );
-      const stat = fs.statSync(outputPath);
-      const out = {
-        imagingResultId: record.imagingResultId,
-        requestId: record.requestId,
-        serviceName: record.serviceName,
-        fileName,
-        resultFileName: fileName.replace(/\.pdf$/i, ''),
-        pdfPath: outputPath,
-        bytes: stat.size,
-        appendedImagePages: rendered.imageFiles.length,
-        mergeSkipped: merge.skipped || [],
-      };
-      files.push(out);
-      logger.job('info', 'cdha item completed', out);
-    } catch (err) {
-      const item = {
-        imagingResultId: record.imagingResultId,
-        fileName,
-        serviceName: record.serviceName,
-        error: err.message,
-      };
-      skipped.push(item);
-      logger.job('error', 'cdha item failed', item);
-    }
-  }
+      const fileName = resolveCdhaRecordPdfFileName(record);
+      const outputPath = path.join(outputDir, fileName);
+      try {
+        const rendered = await renderRecordPdfSegment(record, i, workDir, pathologyImagesByResultId);
+        if (!rendered.ok) {
+          skipped.push(rendered.skipped);
+          logger.job('warn', 'cdha item skipped', rendered.skipped);
+          continue;
+        }
 
-  return {
-    ok: files.length > 0,
-    renderer: 'cdha-item-template-word-com',
-    files,
-    skipped,
-    workDir,
-  };
+        const merge = await mergeFilesToPdf(
+          [rendered.pdfPath, ...rendered.imageFiles],
+          outputPath,
+          { withDetails: true },
+        );
+        const stat = fs.statSync(outputPath);
+        const out = {
+          imagingResultId: record.imagingResultId,
+          requestId: record.requestId,
+          serviceName: record.serviceName,
+          fileName,
+          resultFileName: fileName.replace(/\.pdf$/i, ''),
+          pdfPath: outputPath,
+          bytes: stat.size,
+          appendedImagePages: rendered.imageFiles.length,
+          mergeSkipped: merge.skipped || [],
+        };
+        files.push(out);
+        logger.job('info', 'cdha item completed', out);
+      } catch (err) {
+        const item = {
+          imagingResultId: record.imagingResultId,
+          fileName,
+          serviceName: record.serviceName,
+          error: err.message,
+        };
+        skipped.push(item);
+        logger.job('error', 'cdha item failed', item);
+      }
+    }
+
+    return {
+      ok: files.length > 0,
+      renderer: 'cdha-item-template-word-com',
+      files,
+      skipped,
+      workDir,
+    };
+  } finally {
+    await cleanupWorkDir(workDir);
+  }
 }
 
 module.exports = {

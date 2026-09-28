@@ -123,8 +123,9 @@ async function resolveFile(fileName, options = {}) {
   return { found: false, fileName, candidates };
 }
 
-async function extractZip(zipPath, outputSubDir = 'zip') {
-  const outputDir = path.join(config.paths.tmpDir, 'extract', outputSubDir, path.basename(zipPath, path.extname(zipPath)));
+async function extractZip(zipPath, outputSubDir = 'zip', options = {}) {
+  const outputDir = options.outputDir
+    || path.join(config.paths.tmpDir, 'extract', outputSubDir, path.basename(zipPath, path.extname(zipPath)));
   ensureDir(outputDir);
 
   const passwords = ['', ...config.archives.passwords];

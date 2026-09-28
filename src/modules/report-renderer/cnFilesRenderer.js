@@ -25,7 +25,11 @@ async function extractMergeableFiles(localPath, workDir, cnFileId) {
 
   const extractDir = path.join(workDir, `cn_file_${cnFileId || path.basename(localPath)}`);
   if (ext === '.zip') {
-    const all = await extractZip(localPath, `cn-file-render-${cnFileId || path.basename(localPath)}`);
+    const all = await extractZip(
+      localPath,
+      `cn-file-render-${cnFileId || path.basename(localPath)}`,
+      { outputDir: extractDir },
+    );
     return (all.files || []).filter((file) => isPdfFile(file) || isEmbeddableImage(file));
   }
 
@@ -38,68 +42,82 @@ async function extractMergeableFiles(localPath, workDir, cnFileId) {
   }
 }
 
+async function cleanupWorkDir(workDir) {
+  if (!workDir) return;
+  try {
+    await fs.promises.rm(workDir, { recursive: true, force: true });
+    logger.job('info', 'render work dir cleaned', { workDir });
+  } catch (err) {
+    logger.job('warn', 'render work dir cleanup failed', { workDir, error: err.message });
+  }
+}
+
 async function renderCnFiles({ caseData, outputDir, includeHistory = config.media.includeCnFilesHistory }) {
   ensureDir(outputDir);
   const workDir = path.join(config.paths.tmpDir, 'cn-files-render', `${caseData.fileNum}_${caseData.sessionId || 'all'}_${Date.now()}`);
   ensureDir(workDir);
 
-  const files = [];
-  const skipped = [];
-  for (const cnFile of caseData.cnFiles || []) {
-    if (!cnFile.fileName) continue;
-    if (!shouldRenderCnFile(cnFile, caseData.sessionId, { includeHistory })) {
-      skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'history_skipped' });
-      continue;
-    }
-
-    const outputName = resolveCnFilePdfFileName(cnFile.fileName);
-    const outputPath = path.join(outputDir, outputName);
-    try {
-      const resolved = await resolveFile(cnFile.fileName, { subDir: 'cn-files' });
-      if (!resolved.found) {
-        skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'media_missing' });
-        continue;
-      }
-      const mergeable = await extractMergeableFiles(resolved.cachedPath, workDir, cnFile.id);
-      if (!mergeable.length) {
-        skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'no_mergeable_files' });
+  try {
+    const files = [];
+    const skipped = [];
+    for (const cnFile of caseData.cnFiles || []) {
+      if (!cnFile.fileName) continue;
+      if (!shouldRenderCnFile(cnFile, caseData.sessionId, { includeHistory })) {
+        skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'history_skipped' });
         continue;
       }
 
-      const merge = await mergeFilesToPdf(mergeable, outputPath, { withDetails: true });
-      const stat = fs.statSync(outputPath);
-      const item = {
-        cnFileId: cnFile.id,
-        docTitle: cnFile.docTitle,
-        sourceFileName: cnFile.fileName,
-        fileName: outputName,
-        resultFileName: outputName.replace(/\.pdf$/i, ''),
-        pdfPath: outputPath,
-        bytes: stat.size,
-        pageSources: mergeable.length,
-        mergeSkipped: merge.skipped || [],
-      };
-      files.push(item);
-      logger.job('info', 'cn_file completed', item);
-    } catch (err) {
-      const item = {
-        cnFileId: cnFile.id,
-        fileName: cnFile.fileName,
-        outputName,
-        error: err.message,
-      };
-      skipped.push(item);
-      logger.job('error', 'cn_file failed', item);
+      const outputName = resolveCnFilePdfFileName(cnFile.fileName);
+      const outputPath = path.join(outputDir, outputName);
+      try {
+        const resolved = await resolveFile(cnFile.fileName, { subDir: 'cn-files' });
+        if (!resolved.found) {
+          skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'media_missing' });
+          continue;
+        }
+        const mergeable = await extractMergeableFiles(resolved.cachedPath, workDir, cnFile.id);
+        if (!mergeable.length) {
+          skipped.push({ cnFileId: cnFile.id, fileName: cnFile.fileName, reason: 'no_mergeable_files' });
+          continue;
+        }
+
+        const merge = await mergeFilesToPdf(mergeable, outputPath, { withDetails: true });
+        const stat = fs.statSync(outputPath);
+        const item = {
+          cnFileId: cnFile.id,
+          docTitle: cnFile.docTitle,
+          sourceFileName: cnFile.fileName,
+          fileName: outputName,
+          resultFileName: outputName.replace(/\.pdf$/i, ''),
+          pdfPath: outputPath,
+          bytes: stat.size,
+          pageSources: mergeable.length,
+          mergeSkipped: merge.skipped || [],
+        };
+        files.push(item);
+        logger.job('info', 'cn_file completed', item);
+      } catch (err) {
+        const item = {
+          cnFileId: cnFile.id,
+          fileName: cnFile.fileName,
+          outputName,
+          error: err.message,
+        };
+        skipped.push(item);
+        logger.job('error', 'cn_file failed', item);
+      }
     }
+
+    return {
+      ok: files.length > 0,
+      renderer: 'cn-files-basename-pdf',
+      files,
+      skipped,
+      workDir,
+    };
+  } finally {
+    await cleanupWorkDir(workDir);
   }
-
-  return {
-    ok: files.length > 0,
-    renderer: 'cn-files-basename-pdf',
-    files,
-    skipped,
-    workDir,
-  };
 }
 
 module.exports = {

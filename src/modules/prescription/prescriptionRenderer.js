@@ -347,15 +347,24 @@ async function renderPrescriptionPdf(prescriptionData, outputPdfPath) {
   const frontPdf = path.join(baseDir, `${progressId}-front.pdf`);
   const backPdf = path.join(baseDir, `${progressId}-back.pdf`);
 
-  await renderPrescriptionTemplatePdf(config.prescription.templateFront, prescriptionData.templateData, frontPdf, { role: 'front' });
-  await renderPrescriptionTemplatePdf(config.prescription.templateBack, prescriptionData.templateData, backPdf, { role: 'back' });
-  await mergePdfs([frontPdf, backPdf], outputPdfPath);
-  logger.job('info', 'prescription pdf rendered', { progressId, outputPdfPath });
-  return {
-    pdfPath: outputPdfPath,
-    frontPdf,
-    backPdf,
-  };
+  try {
+    await renderPrescriptionTemplatePdf(config.prescription.templateFront, prescriptionData.templateData, frontPdf, { role: 'front' });
+    await renderPrescriptionTemplatePdf(config.prescription.templateBack, prescriptionData.templateData, backPdf, { role: 'back' });
+    await mergePdfs([frontPdf, backPdf], outputPdfPath);
+    logger.job('info', 'prescription pdf rendered', { progressId, outputPdfPath });
+    return {
+      pdfPath: outputPdfPath,
+      frontPdf,
+      backPdf,
+    };
+  } finally {
+    try {
+      await fs.promises.rm(baseDir, { recursive: true, force: true });
+      logger.job('info', 'prescription render work dir cleaned', { progressId, workDir: baseDir });
+    } catch (err) {
+      logger.job('warn', 'prescription render work dir cleanup failed', { progressId, workDir: baseDir, error: err.message });
+    }
+  }
 }
 
 module.exports = {

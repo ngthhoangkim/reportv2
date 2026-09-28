@@ -135,3 +135,9 @@ State local nằm trong `data/state/`:
 - `generated-files.jsonl`
 - `failed-jobs.jsonl`
 - `failed-uploads.jsonl`
+
+Nếu cần giải phóng dung lượng state trên máy chạy thật, dừng PM2 trước rồi xoá/di chuyển
+`data/state/`. Service sẽ tự tạo lại state tối thiểu khi chạy lại; mất state chỉ làm mất lịch sử
+skip/backfill cursor, không xoá dữ liệu gốc trong SQL/S3. Các file JSONL state được giữ tối đa
+`STATE_JSONL_RETENTION_MB` (mặc định 50MB), còn snapshot chỉ lưu hash/trạng thái nhỏ để tránh
+phình dung lượng.

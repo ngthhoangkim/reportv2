@@ -241,6 +241,55 @@ async function collectPathologyImages(resultId, printedOnly = true) {
   })).filter((row) => row.filename);
 }
 
+async function collectPathologyImagesByResultIds(resultIds, printedOnly = true) {
+  const ids = Array.from(new Set((resultIds || [])
+    .map(numOrNull)
+    .filter((id) => id != null)));
+  if (!ids.length) return new Map();
+
+  const grouped = new Map();
+  for (let offset = 0; offset < ids.length; offset += 1000) {
+    const chunk = ids.slice(offset, offset + 1000);
+    const params = {};
+    const placeholders = chunk.map((id, index) => {
+      const key = `resultId${index}`;
+      params[key] = id;
+      return `@${key}`;
+    });
+    const rows = await db.query(
+      `
+      SELECT
+        ID,
+        ResultId,
+        Filename,
+        Printed,
+        CreatedDate
+      FROM dbo.CN_PathologyImage WITH (NOLOCK)
+      WHERE ResultId IN (${placeholders.join(', ')})
+        AND DeletedDate IS NULL
+        ${printedOnly ? 'AND Printed = 1' : ''}
+      ORDER BY ResultId ASC, CreatedDate ASC, ID ASC
+      `,
+      params,
+    );
+
+    for (const row of rows) {
+      const item = {
+        id: numOrNull(row.ID),
+        resultId: numOrNull(row.ResultId),
+        filename: row.Filename || '',
+        printed: Boolean(row.Printed),
+        createdDate: mapDate(row.CreatedDate),
+      };
+      if (!item.filename || item.resultId == null) continue;
+      const key = Number(item.resultId);
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(item);
+    }
+  }
+  return grouped;
+}
+
 async function collectCnFiles(fileNum, sessionId = null) {
   const rows = await db.query(
     `
@@ -383,7 +432,6 @@ async function collectCase({ fileNum, sessionId = null }) {
   };
   const snapshot = snapshotFromCase(result);
   result.sourceHash = sourceHash(snapshot);
-  result.sourceSnapshot = snapshot;
   return result;
 }
 
@@ -393,6 +441,7 @@ module.exports = {
   collectImaging,
   collectImagingRenderRecords,
   collectPathologyImages,
+  collectPathologyImagesByResultIds,
   collectCnFiles,
   collectLabs,
   collectPrescriptions,

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { config } = require('./env');
 
-const TMP_RENDER_SUBDIRS = ['cdha-items', 'cdha-render'];
+const TMP_RENDER_SUBDIRS = ['cdha-items', 'cdha-render', 'cn-files-render', 'prescriptions'];
 const TMP_STALE_MS = 2 * 60 * 60 * 1000; // 2 giờ
 const OUTPUT_STALE_MS = 2 * 60 * 60 * 1000; // 2 giờ
 // File log theo ngày của app: app/worker/job/backfill/upload/error-YYYY-MM-DD.jsonl.
@@ -50,6 +50,7 @@ async function cleanupStaleRenderDirs(maxAgeMs = TMP_STALE_MS) {
   }
   await cleanupStaleOutputFiles(maxAgeMs);
   await cleanupOldLogFiles();
+  cleanupStateFiles();
 }
 
 // Duyệt đệ quy mọi file trong output (kể cả subfolder như prescriptions/),
@@ -159,6 +160,19 @@ async function cleanupRenderDirsOnStartup() {
   }
   await cleanupStaleOutputFiles();
   await cleanupOldLogFiles();
+  cleanupStateFiles();
 }
 
-module.exports = { ensureDir, ensureAppDirs, cleanupRenderDirsOnStartup, cleanupStaleRenderDirs, cleanupOutputByDateRange, cleanupOldLogFiles };
+function cleanupStateFiles() {
+  try {
+    const state = require('../modules/state/stateStore');
+    const result = state.cleanupStateFiles();
+    console.log('[paths] state cleanup completed', result);
+    return result;
+  } catch (err) {
+    console.warn('[paths] state cleanup failed', err.message);
+    return null;
+  }
+}
+
+module.exports = { ensureDir, ensureAppDirs, cleanupRenderDirsOnStartup, cleanupStaleRenderDirs, cleanupOutputByDateRange, cleanupOldLogFiles, cleanupStateFiles };

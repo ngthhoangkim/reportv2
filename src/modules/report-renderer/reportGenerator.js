@@ -88,7 +88,6 @@ async function generateReport(options) {
       status: 'generated',
       sourceHash: caseData.sourceHash,
       files: job.files.concat(job.cnFiles).map((f) => ({ fileName: f.fileName, pdfPath: f.pdfPath, bytes: f.bytes })),
-      sourceSnapshot: caseData.sourceSnapshot,
     });
     logger.job('info', 'generate items completed', {
       fileNum,
@@ -135,7 +134,7 @@ async function generateReport(options) {
     completedAt: new Date().toISOString(),
   };
   state.appendJsonl('generated-files.jsonl', job);
-  state.setSnapshot(key, { status: 'generated', sourceHash: caseData.sourceHash, pdfPath, sourceSnapshot: caseData.sourceSnapshot });
+  state.setSnapshot(key, { status: 'generated', sourceHash: caseData.sourceHash, pdfPath });
   logger.job('info', 'generate completed', { fileNum, sessionId, pdfPath, bytes: stat.size });
 
   let uploadResult = null;

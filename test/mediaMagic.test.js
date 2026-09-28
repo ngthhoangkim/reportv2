@@ -8,6 +8,7 @@ const {
   isZipMagic,
   isJpegMagic,
   isPngMagic,
+  extractZip,
   extractImagesFromArchiveOrRawV1,
 } = require('../src/modules/media-resolver/mediaResolver');
 
@@ -29,4 +30,18 @@ test('extractImagesFromArchiveOrRawV1 flattens zip image basenames like v1', asy
   const result = await extractImagesFromArchiveOrRawV1(zipPath, outDir, []);
   assert.equal(result.ok, true);
   assert.deepEqual(result.files.map((f) => path.basename(f)), ['IMG001.jpg']);
+});
+
+test('extractZip can use an explicit output directory', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reportv2-zip-out-'));
+  const zipPath = path.join(dir, 'files.zip');
+  const outDir = path.join(dir, 'custom-out');
+  const zip = new AdmZip();
+  zip.addFile('nested/report.pdf', Buffer.from('%PDF-1.4\n'));
+  zip.writeZip(zipPath);
+
+  const result = await extractZip(zipPath, 'ignored-subdir', { outputDir: outDir });
+  assert.equal(result.ok, true);
+  assert.equal(result.outputDir, outDir);
+  assert.deepEqual(result.files.map((f) => path.relative(outDir, f)), ['nested_report.pdf']);
 });

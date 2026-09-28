@@ -152,4 +152,11 @@ main()
     process.stderr.write(`${err.stack || err.message}\n`);
     process.exitCode = 1;
   })
-  .finally(() => db.close());
+  .finally(() => {
+    try {
+      state.cleanupStateFiles();
+    } catch {
+      // Best-effort cleanup before process exit.
+    }
+    return db.close();
+  });
