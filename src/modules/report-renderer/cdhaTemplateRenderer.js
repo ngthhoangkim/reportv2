@@ -306,7 +306,18 @@ function cnFilesToMergeFiles(mediaSummary) {
   return { files, skipped };
 }
 
-async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData = null, mediaSummary = null }) {
+async function resolveRenderRecords({ fileNum, sessionId, records }) {
+  return Array.isArray(records) ? records : collectImagingRenderRecords(fileNum, sessionId);
+}
+
+async function renderCdhaTemplatePdf({
+  fileNum,
+  sessionId,
+  outputPath,
+  caseData = null,
+  mediaSummary = null,
+  records = null,
+}) {
   if (process.platform !== 'win32') {
     return { ok: false, reason: 'word_com_requires_windows' };
   }
@@ -314,17 +325,17 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
     return { ok: false, reason: 'templates_dir_missing', templates: config.paths.templates };
   }
 
-  const records = await collectImagingRenderRecords(fileNum, sessionId);
+  const renderRecords = await resolveRenderRecords({ fileNum, sessionId, records });
   const workDir = path.join(config.paths.tmpDir, 'cdha-render', `${fileNum}_${sessionId || 'all'}_${Date.now()}`);
   ensureDir(workDir);
 
   try {
-    const pathologyImagesByResultId = await collectPathologyImagesForRecords(records);
+    const pathologyImagesByResultId = await collectPathologyImagesForRecords(renderRecords);
     const mergeInputs = [];
     const skipped = [];
     const imageStats = [];
-    for (let i = 0; i < records.length; i += 1) {
-      const record = records[i];
+    for (let i = 0; i < renderRecords.length; i += 1) {
+      const record = renderRecords[i];
       try {
         const rendered = await renderRecordPdfSegment(record, i, workDir, pathologyImagesByResultId);
         if (!rendered.ok) {
@@ -361,7 +372,7 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
     return {
       ok: true,
       outputPath,
-      segmentCount: records.length - skipped.length,
+      segmentCount: renderRecords.length - skipped.length,
       appendedImagePages: imageStats.reduce((sum, item) => sum + item.appendedImages, 0),
       appendedPacsPdfs: pacs.files.length,
       appendedCnFiles: cn.files.length,
@@ -374,7 +385,7 @@ async function renderCdhaTemplatePdf({ fileNum, sessionId, outputPath, caseData 
   }
 }
 
-async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir }) {
+async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir, records = null }) {
   if (process.platform !== 'win32') {
     return { ok: false, reason: 'word_com_requires_windows', files: [], skipped: [] };
   }
@@ -382,17 +393,17 @@ async function renderCdhaItemPdfs({ fileNum, sessionId, outputDir }) {
     return { ok: false, reason: 'templates_dir_missing', templates: config.paths.templates, files: [], skipped: [] };
   }
 
-  const records = await collectImagingRenderRecords(fileNum, sessionId);
+  const renderRecords = await resolveRenderRecords({ fileNum, sessionId, records });
   const workDir = path.join(config.paths.tmpDir, 'cdha-items', `${fileNum}_${sessionId || 'all'}_${Date.now()}`);
   ensureDir(workDir);
   ensureDir(outputDir);
 
   try {
-    const pathologyImagesByResultId = await collectPathologyImagesForRecords(records);
+    const pathologyImagesByResultId = await collectPathologyImagesForRecords(renderRecords);
     const files = [];
     const skipped = [];
-    for (let i = 0; i < records.length; i += 1) {
-      const record = records[i];
+    for (let i = 0; i < renderRecords.length; i += 1) {
+      const record = renderRecords[i];
       if (!record.fileName || !String(record.fileName).trim()) {
         const item = {
           imagingResultId: record.imagingResultId,

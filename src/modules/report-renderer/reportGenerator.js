@@ -32,7 +32,7 @@ async function generateReport(options) {
   const startedAt = new Date().toISOString();
   logger.job('info', 'generate started', { fileNum, sessionId, force: Boolean(options.force), upload: Boolean(options.upload) });
 
-  const caseData = await collectCase({ fileNum, sessionId });
+  const caseData = await collectCase({ fileNum, sessionId, includeRenderRecords: true });
   if (shouldSkipByHash(key, caseData.sourceHash, options.force)) {
     logger.job('info', 'generate skipped because source hash is unchanged', { fileNum, sessionId, sourceHash: caseData.sourceHash });
     return { skipped: true, reason: 'source_hash_unchanged', fileNum, sessionId, sourceHash: caseData.sourceHash };
@@ -45,6 +45,7 @@ async function generateReport(options) {
       fileNum,
       sessionId,
       outputDir: config.paths.output,
+      records: caseData.imagingRenderRecords,
     });
     const renderedCnFiles = config.media.generateCnFiles
       ? await renderCnFiles({
@@ -110,6 +111,7 @@ async function generateReport(options) {
     outputPath: pdfPath,
     caseData,
     mediaSummary,
+    records: caseData.imagingRenderRecords,
   });
   const rendered = cdhaRendered.ok
     ? cdhaRendered

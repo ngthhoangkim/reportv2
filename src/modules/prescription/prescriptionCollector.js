@@ -29,6 +29,10 @@ function sessionPredicate(sessionId) {
   return sessionId != null ? 'AND s.Id = @sessionId' : '';
 }
 
+function fileNumPredicate(expression) {
+  return `${expression} = @fileNum`;
+}
+
 function joinAddressParts(parts, separator = ' ') {
   return parts
     .map((part) => cleanText(part).replace(/\s+/g, ' '))
@@ -70,7 +74,7 @@ async function collectPrescriptionProgresses({ fileNum, sessionId = null, progre
     INNER JOIN dbo.CR_SubSession ss WITH (NOLOCK) ON ss.Id = cp.SubSessionId
     INNER JOIN dbo.CR_Session s WITH (NOLOCK) ON s.Id = ss.SessionId
     INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = s.PatientID
-    WHERE LTRIM(RTRIM(CONVERT(VARCHAR(50), p.FileNum))) = LTRIM(RTRIM(@fileNum))
+    WHERE ${fileNumPredicate('p.FileNum')}
       ${sessionPredicate(sid)}
       ${progressPredicate(pid)}
       AND EXISTS (

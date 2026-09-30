@@ -28,6 +28,76 @@ function sessionPredicate(alias, sessionId) {
   return sessionId != null ? ` AND ${alias}.SessionId = @sessionId` : '';
 }
 
+function fileNumPredicate(expression) {
+  return `${expression} = @fileNum`;
+}
+
+function mapImagingSummary(r) {
+  return {
+    fileNum: r.FileNum != null ? String(r.FileNum).trim() : '',
+    sessionId: numOrNull(r.SessionId),
+    patientId: numOrNull(r.PatientID),
+    patientName: r.PatientName || '',
+    dob: mapDate(r.Dob),
+    sex: r.Sex || '',
+    address: r.Street || '',
+    serviceName: r.ServiceName || '',
+    doctor: r.Doctor || '',
+    requestedDoctor: r.RequestedDoctor || '',
+    imagingResultId: numOrNull(r.ImagingResultId),
+    requestId: numOrNull(r.RequestId),
+    pathologyType: numOrNull(r.PathologyType),
+    typeName: typeName(r.PathologyType),
+    resultName: r.ResultName || '',
+    templateFile: r.TemplateFile || '',
+    fileName: r.FileName || '',
+    sampleNumber: r.SampleNumber || '',
+    createdDate: mapDate(r.CreatedDate),
+    updatedDate: mapDate(r.UpdatedDate),
+    deletedDate: mapDate(r.DeletedDate),
+    finishDate: mapDate(r.FinishDate),
+    resultDataBytes: Number(r.ResultDataBytes || 0),
+    conclusionDataBytes: Number(r.ConclusionDataBytes || 0),
+    suggestionDataBytes: Number(r.SuggestionDataBytes || 0),
+    totalImages: Number(r.TotalImages || 0),
+    printedImages: Number(r.PrintedImages || 0),
+    pacsFileResultUrl: r.FileResultURL || '',
+    pacsViewUrl: r.ViewURL || '',
+    pacsAccessCode: r.AccessCode || '',
+    pacsCreatedDate: mapDate(r.PacsCreatedDate),
+  };
+}
+
+function mapImagingRenderRecord(row) {
+  const sample = row.SampleNumber != null ? String(row.SampleNumber).trim() : '';
+  const file = row.FileNum != null ? String(row.FileNum).trim() : '';
+  return {
+    fileNum: file,
+    sessionId: numOrNull(row.SessionId),
+    sampleNumber: sample,
+    itemNum: sample || file,
+    patientName: row.PatientName || '',
+    serviceName: row.ServiceName || '',
+    dob: row.Dob || null,
+    gender: row.Gender || row.Sex || '',
+    address: row.Address || row.Street || '',
+    conclusion: row.Conclusion || '',
+    doctor: row.Doctor || '',
+    doctorId: numOrNull(row.DoctorId),
+    requestedDoctor: row.RequestedDoctor || '',
+    ngayKham: row.NgayKham || row.CreatedDate || null,
+    fileName: row.FileName || '',
+    requestId: numOrNull(row.RequestId),
+    imagingResultId: numOrNull(row.ImagingResultId),
+    resultData: row.ResultData,
+    conclusionData: row.ConclusionData,
+    suggestionData: row.SuggestionData,
+    templateFile: row.TemplateFile || '',
+    pathologyType: numOrNull(row.PathologyType) || 0,
+    doctorQualification: '',
+  };
+}
+
 async function collectPatients(fileNum) {
   const rows = await db.query(
     `
@@ -39,7 +109,7 @@ async function collectPatients(fileNum) {
       pv.Sex
     FROM dbo.CR_Patient p WITH (NOLOCK)
     LEFT JOIN dbo.PersonView pv WITH (NOLOCK) ON pv.ContactId = p.ContactId
-    WHERE LTRIM(RTRIM(CONVERT(VARCHAR(50), p.FileNum))) = LTRIM(RTRIM(@fileNum))
+    WHERE ${fileNumPredicate('p.FileNum')}
     ORDER BY p.ContactId DESC
     `,
     { fileNum },
@@ -53,7 +123,17 @@ async function collectPatients(fileNum) {
   }));
 }
 
-async function collectImaging(fileNum, sessionId = null) {
+async function collectImagingRows(fileNum, sessionId = null, options = {}) {
+  const includeRenderRecords = Boolean(options.includeRenderRecords);
+  const renderColumns = includeRenderRecords ? `,
+      r.Conclusion,
+      r.DoctorId,
+      r.CreatedDate AS NgayKham,
+      v.Sex AS Gender,
+      v.Street AS Address,
+      d.ResultData,
+      d.ConclusionData,
+      d.SuggestionData` : '';
   const rows = await db.query(
     `
     SELECT
@@ -87,6 +167,7 @@ async function collectImaging(fileNum, sessionId = null) {
       pacs.ViewURL,
       pacs.AccessCode,
       pacs.PacsCreatedDate
+      ${renderColumns}
     FROM dbo.CN_ImagingResult r WITH (NOLOCK)
     INNER JOIN dbo.ViewImagingResult v WITH (NOLOCK) ON v.Id = r.Id
     INNER JOIN dbo.CN_ImagingResultData d WITH (NOLOCK) ON d.ImagingResultId = r.Id
@@ -108,45 +189,21 @@ async function collectImaging(fileNum, sessionId = null) {
       ORDER BY p.Id DESC
     ) pacs
     WHERE r.DeletedDate IS NULL
-      AND LTRIM(RTRIM(CONVERT(VARCHAR(50), v.FileNum))) = LTRIM(RTRIM(@fileNum))
+      AND ${fileNumPredicate('v.FileNum')}
       ${sessionPredicate('v', sessionId)}
     ORDER BY v.SessionId DESC, r.CreatedDate ASC, r.Id ASC
     `,
     { fileNum, sessionId },
   );
-  return rows.map((r) => ({
-    fileNum: r.FileNum != null ? String(r.FileNum).trim() : '',
-    sessionId: numOrNull(r.SessionId),
-    patientId: numOrNull(r.PatientID),
-    patientName: r.PatientName || '',
-    dob: mapDate(r.Dob),
-    sex: r.Sex || '',
-    address: r.Street || '',
-    serviceName: r.ServiceName || '',
-    doctor: r.Doctor || '',
-    requestedDoctor: r.RequestedDoctor || '',
-    imagingResultId: numOrNull(r.ImagingResultId),
-    requestId: numOrNull(r.RequestId),
-    pathologyType: numOrNull(r.PathologyType),
-    typeName: typeName(r.PathologyType),
-    resultName: r.ResultName || '',
-    templateFile: r.TemplateFile || '',
-    fileName: r.FileName || '',
-    sampleNumber: r.SampleNumber || '',
-    createdDate: mapDate(r.CreatedDate),
-    updatedDate: mapDate(r.UpdatedDate),
-    deletedDate: mapDate(r.DeletedDate),
-    finishDate: mapDate(r.FinishDate),
-    resultDataBytes: Number(r.ResultDataBytes || 0),
-    conclusionDataBytes: Number(r.ConclusionDataBytes || 0),
-    suggestionDataBytes: Number(r.SuggestionDataBytes || 0),
-    totalImages: Number(r.TotalImages || 0),
-    printedImages: Number(r.PrintedImages || 0),
-    pacsFileResultUrl: r.FileResultURL || '',
-    pacsViewUrl: r.ViewURL || '',
-    pacsAccessCode: r.AccessCode || '',
-    pacsCreatedDate: mapDate(r.PacsCreatedDate),
-  }));
+  return {
+    imaging: rows.map(mapImagingSummary),
+    renderRecords: includeRenderRecords ? rows.map(mapImagingRenderRecord) : [],
+  };
+}
+
+async function collectImaging(fileNum, sessionId = null) {
+  const result = await collectImagingRows(fileNum, sessionId);
+  return result.imaging;
 }
 
 async function collectImagingRenderRecords(fileNum, sessionId = null) {
@@ -178,41 +235,13 @@ async function collectImagingRenderRecords(fileNum, sessionId = null) {
     INNER JOIN dbo.CN_ImagingResultData d WITH (NOLOCK) ON r.Id = d.ImagingResultId
     INNER JOIN dbo.ViewImagingResult v WITH (NOLOCK) ON v.Id = r.Id
     WHERE r.DeletedDate IS NULL
-      AND LTRIM(RTRIM(CONVERT(VARCHAR(50), v.FileNum))) = LTRIM(RTRIM(@fileNum))
+      AND ${fileNumPredicate('v.FileNum')}
       ${sessionPredicate('v', sessionId)}
     ORDER BY r.CreatedDate ASC, r.Id ASC
     `,
     { fileNum, sessionId },
   );
-  return rows.map((row) => {
-    const sample = row.SampleNumber != null ? String(row.SampleNumber).trim() : '';
-    const file = row.FileNum != null ? String(row.FileNum).trim() : '';
-    return {
-      fileNum: file,
-      sessionId: numOrNull(row.SessionId),
-      sampleNumber: sample,
-      itemNum: sample || file,
-      patientName: row.PatientName || '',
-      serviceName: row.ServiceName || '',
-      dob: row.Dob || null,
-      gender: row.Gender || '',
-      address: row.Address || '',
-      conclusion: row.Conclusion || '',
-      doctor: row.Doctor || '',
-      doctorId: numOrNull(row.DoctorId),
-      requestedDoctor: row.RequestedDoctor || '',
-      ngayKham: row.NgayKham || null,
-      fileName: row.FileName || '',
-      requestId: numOrNull(row.RequestId),
-      imagingResultId: numOrNull(row.ImagingResultId),
-      resultData: row.ResultData,
-      conclusionData: row.ConclusionData,
-      suggestionData: row.SuggestionData,
-      templateFile: row.TemplateFile || '',
-      pathologyType: numOrNull(row.PathologyType) || 0,
-      doctorQualification: '',
-    };
-  });
+  return rows.map(mapImagingRenderRecord);
 }
 
 async function collectPathologyImages(resultId, printedOnly = true) {
@@ -321,8 +350,8 @@ async function collectCnFiles(fileNum, sessionId = null) {
     LEFT JOIN dbo.CR_Patient sessionPatient WITH (NOLOCK) ON sessionPatient.ContactId = s.PatientID
     WHERE f.DeletedDate IS NULL
       AND (
-        LTRIM(RTRIM(CONVERT(VARCHAR(50), directPatient.FileNum))) = LTRIM(RTRIM(@fileNum))
-        OR LTRIM(RTRIM(CONVERT(VARCHAR(50), sessionPatient.FileNum))) = LTRIM(RTRIM(@fileNum))
+        ${fileNumPredicate('directPatient.FileNum')}
+        OR ${fileNumPredicate('sessionPatient.FileNum')}
       )
       AND (
         @sessionId IS NULL
@@ -365,7 +394,7 @@ async function collectLabs(fileNum, sessionId = null) {
     FROM dbo.ViewPathologyResult pr WITH (NOLOCK)
     LEFT JOIN dbo.CN_PathologyResultValue rv WITH (NOLOCK) ON rv.ResultId = pr.Id
     WHERE pr.DeletedDate IS NULL
-      AND LTRIM(RTRIM(CONVERT(VARCHAR(50), pr.FileNum))) = LTRIM(RTRIM(@fileNum))
+      AND ${fileNumPredicate('pr.FileNum')}
       ${sessionId != null ? 'AND pr.SessionId = @sessionId' : ''}
     GROUP BY pr.SessionId
     ORDER BY MAX(pr.CreatedDate) DESC
@@ -394,7 +423,7 @@ async function collectPrescriptions(fileNum, sessionId = null) {
     FROM dbo.ViewRX rx WITH (NOLOCK)
     INNER JOIN dbo.CR_Patient p WITH (NOLOCK) ON p.ContactId = rx.PatientID
     WHERE rx.DeletedDate IS NULL
-      AND LTRIM(RTRIM(CONVERT(VARCHAR(50), p.FileNum))) = LTRIM(RTRIM(@fileNum))
+      AND ${fileNumPredicate('p.FileNum')}
       ${sessionId != null ? 'AND rx.SessionId = @sessionId' : ''}
     GROUP BY rx.SessionId
     ORDER BY MAX(rx.CreatedDate) DESC
@@ -411,12 +440,12 @@ async function collectPrescriptions(fileNum, sessionId = null) {
   }));
 }
 
-async function collectCase({ fileNum, sessionId = null }) {
+async function collectCase({ fileNum, sessionId = null, includeRenderRecords = false }) {
   const cleanFileNum = String(fileNum || '').trim();
   const sid = sessionId == null || sessionId === '' ? null : Number(sessionId);
-  const [patients, imaging, cnFiles, labs, prescriptions] = await Promise.all([
+  const [patients, imagingResult, cnFiles, labs, prescriptions] = await Promise.all([
     collectPatients(cleanFileNum),
-    collectImaging(cleanFileNum, sid),
+    collectImagingRows(cleanFileNum, sid, { includeRenderRecords }),
     collectCnFiles(cleanFileNum, sid),
     collectLabs(cleanFileNum, sid),
     collectPrescriptions(cleanFileNum, sid),
@@ -425,11 +454,12 @@ async function collectCase({ fileNum, sessionId = null }) {
     fileNum: cleanFileNum,
     sessionId: sid,
     patients,
-    imaging,
+    imaging: imagingResult.imaging,
     cnFiles,
     labs,
     prescriptions,
   };
+  if (includeRenderRecords) result.imagingRenderRecords = imagingResult.renderRecords;
   const snapshot = snapshotFromCase(result);
   result.sourceHash = sourceHash(snapshot);
   return result;
