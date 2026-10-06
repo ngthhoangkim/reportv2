@@ -3,12 +3,9 @@ const path = require('path');
 const { config } = require('./env');
 
 const TMP_RENDER_SUBDIRS = ['cdha-items', 'cdha-render', 'cn-files-render', 'prescriptions'];
-const TMP_STALE_MS = 2 * 60 * 60 * 1000; // 2 giờ
-const OUTPUT_STALE_MS = 2 * 60 * 60 * 1000; // 2 giờ
 // File log theo ngày của app: app/worker/job/backfill/upload/error-YYYY-MM-DD.jsonl.
 // Chỉ đụng đúng các file này — KHÔNG đụng pm2-*.log (PM2 đang lock) và state.
 const LOG_FILE_RE = /^(app|worker|job|backfill|upload|error)-(\d{4})-(\d{2})-(\d{2})\.jsonl$/;
-const LOG_RETENTION_DAYS = Number(process.env.LOG_RETENTION_DAYS) || 14;
 
 function ensureDir(dir) {
   if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -24,7 +21,7 @@ function ensureAppDirs() {
   ].forEach(ensureDir);
 }
 
-async function cleanupStaleRenderDirs(maxAgeMs = TMP_STALE_MS) {
+async function cleanupStaleRenderDirs(maxAgeMs = config.cleanup.tmpStaleSeconds * 1000) {
   for (const sub of TMP_RENDER_SUBDIRS) {
     const parent = path.join(config.paths.tmpDir, sub);
     if (!fs.existsSync(parent)) continue;
@@ -48,7 +45,7 @@ async function cleanupStaleRenderDirs(maxAgeMs = TMP_STALE_MS) {
       }
     }
   }
-  await cleanupStaleOutputFiles(maxAgeMs);
+  await cleanupStaleOutputFiles();
   await cleanupOldLogFiles();
   cleanupStateFiles();
 }
@@ -72,6 +69,8 @@ async function removeOutputFilesWhere(predicate) {
       try {
         if (entry.isDirectory()) {
           await walk(fullPath);
+          const remaining = await fs.promises.readdir(fullPath).catch(() => []);
+          if (remaining.length === 0) await fs.promises.rmdir(fullPath).catch(() => {});
         } else if (entry.isFile()) {
           const stat = await fs.promises.stat(fullPath);
           if (predicate(stat)) {
@@ -89,7 +88,7 @@ async function removeOutputFilesWhere(predicate) {
   return { removed, errors };
 }
 
-async function cleanupStaleOutputFiles(maxAgeMs = OUTPUT_STALE_MS) {
+async function cleanupStaleOutputFiles(maxAgeMs = config.cleanup.outputStaleSeconds * 1000) {
   const cutoff = Date.now() - maxAgeMs;
   const { removed } = await removeOutputFilesWhere((stat) => stat.mtimeMs < cutoff);
   if (removed > 0) console.log(`[paths] stale output files removed: ${removed}`);
@@ -107,7 +106,7 @@ async function cleanupOutputByDateRange(from, to) {
 }
 
 // Xóa file log ngày cũ hơn maxAgeDays (theo ngày trong tên file). Không đụng pm2-*.log.
-async function cleanupOldLogFiles(maxAgeDays = LOG_RETENTION_DAYS) {
+async function cleanupOldLogFiles(maxAgeDays = config.cleanup.logRetentionDays) {
   const logsDir = config.paths.logsDir;
   if (!fs.existsSync(logsDir)) return { removed: 0, errors: 0 };
   let entries;
@@ -158,7 +157,7 @@ async function cleanupRenderDirsOnStartup() {
       }
     }
   }
-  await cleanupStaleOutputFiles();
+  await cleanupStaleOutputFiles(0);
   await cleanupOldLogFiles();
   cleanupStateFiles();
 }
@@ -167,7 +166,8 @@ function cleanupStateFiles() {
   try {
     const state = require('../modules/state/stateStore');
     const result = state.cleanupStateFiles();
-    console.log('[paths] state cleanup completed', result);
+    const changed = result && Object.values(result).some((item) => item && item.skipped === false);
+    if (changed) console.log('[paths] state cleanup completed', result);
     return result;
   } catch (err) {
     console.warn('[paths] state cleanup failed', err.message);

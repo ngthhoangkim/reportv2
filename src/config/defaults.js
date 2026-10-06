@@ -3,9 +3,20 @@ module.exports = {
     port: 3000,
   },
   worker: {
-    pollSeconds: 30,
-    lookbackHours: 48,
+    scheduleTimes: ['02:15', '14:15'],
+    initialLookbackHours: 48,
+    cursorOverlapMinutes: 15,
+    settleSeconds: 60,
     retryLimit: 3,
+  },
+  cleanup: {
+    intervalSeconds: 30,
+    tmpStaleSeconds: 30 * 60,
+    outputStaleSeconds: 10 * 60,
+    logRetentionDays: 7,
+  },
+  db: {
+    idleCloseSeconds: 30,
   },
   logging: {
     maxLinesRecent: 200,

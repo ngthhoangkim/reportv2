@@ -3,8 +3,8 @@ const path = require('path');
 const { config } = require('../../config/env');
 const { ensureDir } = require('../../config/paths');
 
-const JSONL_RETENTION_BYTES = (Number(process.env.STATE_JSONL_RETENTION_MB) || 50) * 1024 * 1024;
-const SNAPSHOT_COMPACT_MAX_BYTES = (Number(process.env.STATE_SNAPSHOT_COMPACT_MAX_MB) || 200) * 1024 * 1024;
+const JSONL_RETENTION_BYTES = (Number(process.env.STATE_JSONL_RETENTION_MB) || 5) * 1024 * 1024;
+const SNAPSHOT_COMPACT_MAX_BYTES = (Number(process.env.STATE_SNAPSHOT_COMPACT_MAX_MB) || 50) * 1024 * 1024;
 
 function statePath(name) {
   ensureDir(config.paths.stateDir);

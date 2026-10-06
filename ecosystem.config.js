@@ -2,7 +2,7 @@
 module.exports = {
   apps: [
     {
-      // 1) Realtime: server + worker poll dữ liệu mới.
+      // 1) Server + worker dữ liệu mới. Worker dùng cursor local nên không quét lặp DB.
       name: 'reportv2',
       script: 'src/server.js',
       cwd: __dirname,
@@ -16,10 +16,17 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         WORKER_ENABLED: 'true',
+        WORKER_SCHEDULE_TIMES: '02:15,14:15',
+        WORKER_POLL_SECONDS: '0',
+        WORKER_INITIAL_LOOKBACK_HOURS: '48',
+        WORKER_CURSOR_OVERLAP_MINUTES: '15',
+        WORKER_SETTLE_SECONDS: '60',
+        CLEANUP_INTERVAL_SECONDS: '30',
+        DB_IDLE_CLOSE_SECONDS: '30',
       },
     },
     {
-      // 2) Backfill quá khứ: chạy từng tháng, mới -> cũ, tự resume nhờ backfill-cursor.json.
+      // 2) Backfill quá khứ: chạy từng ngày/tháng, mới -> cũ, tự resume nhờ backfill-cursor.json.
       //    autorestart:false BẮT BUỘC — script này kết thúc, để true là PM2 chạy lại vô hạn.
       name: 'reportv2-backfill',
       script: 'src/scripts/backfillChunked.js',
@@ -33,6 +40,7 @@ module.exports = {
         WORKER_ENABLED: 'false',
         BACKFILL_FROM: '2022-01-01',
         BACKFILL_TO: '2026-07-26',
+        BACKFILL_CHUNK: 'day',
         BACKFILL_UPLOAD: 'true',
         BACKFILL_FORCE: 'false',
       },

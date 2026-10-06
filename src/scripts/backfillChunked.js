@@ -34,6 +34,16 @@ function lastDayOfMonth(year, month) {
   return new Date(year, month, 0).getDate();
 }
 
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function dateKey(date) {
+  return ymd(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
 /** Cắt [from, to] thành từng tháng, mặc định trả về mới nhất trước. */
 function monthChunks(from, to, newestFirst = true) {
   const [fromYear, fromMonth] = from.split('-').map(Number);
@@ -54,6 +64,19 @@ function monthChunks(from, to, newestFirst = true) {
       month = 1;
       year += 1;
     }
+  }
+  return newestFirst ? chunks.reverse() : chunks;
+}
+
+/** Cắt [from, to] thành từng ngày, dùng khi muốn giảm tải mỗi query DB. */
+function dayChunks(from, to, newestFirst = true) {
+  const chunks = [];
+  let current = new Date(`${from}T00:00:00`);
+  const last = new Date(`${to}T00:00:00`);
+  while (current <= last) {
+    const key = dateKey(current);
+    chunks.push({ key, from: key, to: key });
+    current = addDays(current, 1);
   }
   return newestFirst ? chunks.reverse() : chunks;
 }
@@ -82,14 +105,18 @@ async function main() {
   const oldestFirst = args.oldestFirst === true || String(process.env.BACKFILL_OLDEST_FIRST || '').toLowerCase() === 'true';
   const retryFailed = args.retryFailed === true;
   const reset = args.reset === true;
+  const chunkMode = String(args.chunk || process.env.BACKFILL_CHUNK || 'day').toLowerCase();
 
   if (!isDate(from) || !isDate(to)) {
     throw new Error('Cần --from YYYY-MM-DD --to YYYY-MM-DD (hoặc biến môi trường BACKFILL_FROM / BACKFILL_TO)');
   }
   if (from > to) throw new Error(`--from (${from}) phải nhỏ hơn hoặc bằng --to (${to})`);
+  if (!['day', 'month'].includes(chunkMode)) throw new Error('--chunk chỉ nhận day hoặc month');
 
-  const rangeKey = `${from}..${to}|${types || 'all'}|upload=${upload}|force=${force}`;
-  const chunks = monthChunks(from, to, !oldestFirst);
+  const rangeKey = `${from}..${to}|${types || 'all'}|upload=${upload}|force=${force}|chunk=${chunkMode}`;
+  const chunks = chunkMode === 'month'
+    ? monthChunks(from, to, !oldestFirst)
+    : dayChunks(from, to, !oldestFirst);
   const cursor = loadCursor(rangeKey, reset);
 
   const pending = chunks.filter((chunk) => {
@@ -105,6 +132,7 @@ async function main() {
     pendingChunks: pending.length,
     doneChunks: Object.keys(cursor.done).length,
     order: oldestFirst ? 'oldest-first' : 'newest-first',
+    chunkMode,
     upload,
     force,
     types: types || null,
@@ -124,7 +152,7 @@ async function main() {
       cursor.done[chunk.key] = { count: result.count, finishedAt: new Date().toISOString() };
       logger.backfill('info', 'chunk completed', { chunk: chunk.key, count: result.count, remaining: pending.length - i - 1 });
     } catch (err) {
-      // Một tháng hỏng không nên chặn các tháng còn lại; ghi lại để chạy --retry-failed sau.
+      // Một chunk hỏng không nên chặn các chunk còn lại; ghi lại để chạy --retry-failed sau.
       cursor.failed[chunk.key] = { error: err.message, failedAt: new Date().toISOString() };
       logger.backfill('error', 'chunk failed', { chunk: chunk.key, error: err.message, stack: err.stack });
     }

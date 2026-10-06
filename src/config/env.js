@@ -37,6 +37,7 @@ const config = {
     trustServerCertificate: envBool('DB_TRUST_SERVER_CERTIFICATE', true),
     connectTimeoutMs: envNumber('DB_CONNECT_TIMEOUT_MS', 15000),
     requestTimeoutMs: envNumber('DB_REQUEST_TIMEOUT_MS', 120000),
+    idleCloseSeconds: envNumber('DB_IDLE_CLOSE_SECONDS', defaults.db.idleCloseSeconds),
   },
   app: {
     port: envNumber('APP_PORT', envNumber('PORT', defaults.app.port)),
@@ -54,13 +55,25 @@ const config = {
   s3: {
     baseUrl: envString('S3_UPLOAD_API_BASE', ''),
     prefix: envString('S3_UPLOAD_PREFIX', 'khambenh/'),
-    cleanupAfterUpload: envBool('CLEANUP_AFTER_UPLOAD', false),
+    cleanupAfterUpload: envBool('CLEANUP_AFTER_UPLOAD', true),
   },
   worker: {
     enabled: envBool('WORKER_ENABLED', true),
-    pollSeconds: envNumber('WORKER_POLL_SECONDS', defaults.worker.pollSeconds),
-    lookbackHours: defaults.worker.lookbackHours,
+    scheduleTimes: envString('WORKER_SCHEDULE_TIMES', defaults.worker.scheduleTimes.join(','))
+      .split(/[;,|]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    pollSeconds: envNumber('WORKER_POLL_SECONDS', 0),
+    initialLookbackHours: envNumber('WORKER_INITIAL_LOOKBACK_HOURS', defaults.worker.initialLookbackHours),
+    cursorOverlapMinutes: envNumber('WORKER_CURSOR_OVERLAP_MINUTES', defaults.worker.cursorOverlapMinutes),
+    settleSeconds: envNumber('WORKER_SETTLE_SECONDS', defaults.worker.settleSeconds),
     retryLimit: defaults.worker.retryLimit,
+  },
+  cleanup: {
+    intervalSeconds: envNumber('CLEANUP_INTERVAL_SECONDS', defaults.cleanup.intervalSeconds),
+    tmpStaleSeconds: envNumber('CLEANUP_TMP_STALE_SECONDS', defaults.cleanup.tmpStaleSeconds),
+    outputStaleSeconds: envNumber('CLEANUP_OUTPUT_STALE_SECONDS', defaults.cleanup.outputStaleSeconds),
+    logRetentionDays: envNumber('LOG_RETENTION_DAYS', defaults.cleanup.logRetentionDays),
   },
   word: {
     timeoutMs: envNumber('WORD_CONVERT_TIMEOUT_MS', defaults.word.timeoutMs),

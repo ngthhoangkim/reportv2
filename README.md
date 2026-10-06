@@ -75,16 +75,39 @@ Hai app trong `ecosystem.config.js`:
 
 | App | Việc | autorestart |
 | --- | --- | --- |
-| `reportv2` | Server + worker realtime (dữ liệu mới) | `true` |
-| `reportv2-backfill` | Backfill quá khứ theo từng tháng | `false` (bắt buộc) |
+| `reportv2` | Server + worker daily incremental (dữ liệu mới) | `true` |
+| `reportv2-backfill` | Backfill quá khứ theo từng ngày/tháng | `false` (bắt buộc) |
 
-Realtime:
+Daily incremental:
 
 ```bash
 pm2 start ecosystem.config.js --only reportv2
 pm2 logs reportv2
 pm2 save
 ```
+
+Worker không còn quét lặp cửa sổ 48h mỗi 30 giây. Nó lưu mốc đã xử lý vào
+`data/state/worker-cursor.json`; mỗi lần chạy chỉ query từ mốc đó trừ overlap nhỏ
+(`WORKER_CURSOR_OVERLAP_MINUTES`, mặc định 15 phút) tới thời điểm đã ổn định
+(`WORKER_SETTLE_SECONDS`, mặc định 60 giây). Lần đầu tiên dùng
+`WORKER_INITIAL_LOOKBACK_HOURS` (mặc định 48h). Sau đó worker chỉ tự chạy theo giờ
+trong `WORKER_SCHEDULE_TIMES` (mặc định `02:15,14:15`, theo giờ local của máy chạy app).
+
+SQL pool tự đóng sau khi idle `DB_IDLE_CLOSE_SECONDS` giây (mặc định 30s), nên app không giữ
+kết nối DB liên tục giữa hai khung giờ sync. Nếu upstream sync lỗi và chưa có data mới, service
+sẽ không tự retry dồn dập; sau khi sửa sync có thể chạy tay qua `POST /api/backfill` với `date`
+hoặc `from/to`.
+
+### Dọn file local
+
+Service mặc định cố gắng không giữ file local:
+
+- Sau upload thành công, PDF trong `output/` bị xoá ngay (`CLEANUP_AFTER_UPLOAD=true` mặc định).
+- Khi app khởi động, các file output cũ và thư mục render tạm còn sót sẽ bị dọn.
+- Cleanup worker chạy mỗi `CLEANUP_INTERVAL_SECONDS` giây (mặc định 30s), xoá output cũ hơn
+  `CLEANUP_OUTPUT_STALE_SECONDS` (mặc định 10 phút) và thư mục tạm cũ hơn
+  `CLEANUP_TMP_STALE_SECONDS` (mặc định 30 phút).
+- Log JSONL mặc định giữ 7 ngày, state JSONL mặc định tự trim ở 5MB/file.
 
 Backfill quá khứ (sửa `BACKFILL_FROM` / `BACKFILL_TO` trong `ecosystem.config.js` trước):
 
@@ -93,9 +116,11 @@ pm2 start ecosystem.config.js --only reportv2-backfill
 pm2 logs reportv2-backfill
 ```
 
-Backfill chạy **từng tháng một, mới nhất trước**, ghi tiến độ vào `data/state/backfill-cursor.json`
-sau mỗi tháng. Dừng giữa chừng rồi start lại thì nó bỏ qua các tháng đã xong. Một tháng lỗi
-không chặn các tháng còn lại — lỗi được ghi vào cursor, chạy lại với `--retry-failed`.
+Backfill mặc định chạy **từng ngày một, mới nhất trước** để mỗi lần query DB nhỏ và dễ resume.
+Nếu muốn chạy theo tháng như cũ, đặt `BACKFILL_CHUNK=month` hoặc truyền `--chunk month`.
+Tiến độ ghi vào `data/state/backfill-cursor.json` sau mỗi chunk. Dừng giữa chừng rồi start
+lại thì nó bỏ qua các ngày/tháng đã xong. Một chunk lỗi không chặn các chunk còn lại — lỗi
+được ghi vào cursor, chạy lại với `--retry-failed`.
 
 Chạy tay không qua PM2:
 
@@ -104,9 +129,10 @@ npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30
 npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30 --retry-failed
 npm run backfill:chunked -- --from 2022-07-01 --to 2025-06-30 --reset       # bỏ cursor, chạy lại từ đầu
 npm run backfill:chunked -- --from 2024-01-01 --to 2024-12-31 --oldest-first
+npm run backfill:chunked -- --from 2024-01-01 --to 2024-12-31 --chunk month
 ```
 
-Cờ: `--types cdha,prescription`, `--force` (làm lại cả case đã có), `--upload false`.
+Cờ: `--types cdha,prescription`, `--chunk day|month`, `--force` (làm lại cả case đã có), `--upload false`.
 
 ### Word COM lock
 
@@ -130,6 +156,7 @@ Logs JSONL nằm trong `logs/`:
 State local nằm trong `data/state/`:
 
 - `source-snapshots.json`
+- `worker-cursor.json` (mốc incremental cho worker daily)
 - `backfill-cursor.json` (tiến độ backfill theo tháng)
 - `word-com.lock` (lock Word COM, tự xoá khi nhả)
 - `generated-files.jsonl`

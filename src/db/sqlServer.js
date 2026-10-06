@@ -2,6 +2,8 @@ const { config } = require('../config/env');
 
 let pool = null;
 let sqlModule = null;
+let activeRequests = 0;
+let idleCloseTimer = null;
 
 const WRITE_SQL_RE = /\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|EXEC|EXECUTE|GRANT|REVOKE|BACKUP|RESTORE)\b/i;
 const SELECT_INTO_RE = /\bSELECT\b[\s\S]*\bINTO\b/i;
@@ -78,11 +80,28 @@ function buildConfig() {
 }
 
 async function getPool() {
+  if (idleCloseTimer) {
+    clearTimeout(idleCloseTimer);
+    idleCloseTimer = null;
+  }
   if (!pool) {
     const sql = getSqlModule();
     pool = await new sql.ConnectionPool(buildConfig()).connect();
   }
   return pool;
+}
+
+function scheduleIdleClose() {
+  if (activeRequests > 0 || idleCloseTimer || !pool) return;
+  const delayMs = config.db.idleCloseSeconds * 1000;
+  idleCloseTimer = setTimeout(async () => {
+    idleCloseTimer = null;
+    if (activeRequests > 0 || !pool) return;
+    const current = pool;
+    pool = null;
+    await current.close().catch(() => {});
+  }, delayMs);
+  idleCloseTimer.unref();
 }
 
 function bindParams(request, params = {}) {
@@ -94,16 +113,28 @@ function bindParams(request, params = {}) {
 
 async function query(text, params = {}) {
   assertReadOnly(text);
-  const p = await getPool();
-  const result = await bindParams(p.request(), params).query(text);
-  return result.recordset || [];
+  activeRequests++;
+  try {
+    const p = await getPool();
+    const result = await bindParams(p.request(), params).query(text);
+    return result.recordset || [];
+  } finally {
+    activeRequests--;
+    scheduleIdleClose();
+  }
 }
 
 async function queryAll(text, params = {}) {
   assertReadOnly(text);
-  const p = await getPool();
-  const result = await bindParams(p.request(), params).query(text);
-  return result.recordsets || [];
+  activeRequests++;
+  try {
+    const p = await getPool();
+    const result = await bindParams(p.request(), params).query(text);
+    return result.recordsets || [];
+  } finally {
+    activeRequests--;
+    scheduleIdleClose();
+  }
 }
 
 async function healthCheck() {
@@ -112,9 +143,14 @@ async function healthCheck() {
 }
 
 async function close() {
+  if (idleCloseTimer) {
+    clearTimeout(idleCloseTimer);
+    idleCloseTimer = null;
+  }
   if (pool) {
-    await pool.close();
+    const current = pool;
     pool = null;
+    await current.close();
   }
 }
 
