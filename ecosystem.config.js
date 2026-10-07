@@ -2,6 +2,25 @@
 module.exports = {
   apps: [
     {
+      // 0) SSH tunnel tới SQL Server trên AWS/bastion. Cần key SSH để chạy không hỏi password.
+      name: 'reportv2-db-tunnel',
+      script: 'ssh',
+      args: [
+        '-N',
+        '-o', 'ExitOnForwardFailure=yes',
+        '-o', 'ServerAliveInterval=30',
+        '-o', 'ServerAliveCountMax=3',
+        '-L', '51500:127.0.0.1:1433',
+        'ubuntu@54.255.227.162',
+      ],
+      interpreter: 'none',
+      autorestart: true,
+      restart_delay: 5000,
+      out_file: 'logs/pm2-db-tunnel.out.log',
+      error_file: 'logs/pm2-db-tunnel.err.log',
+      time: true,
+    },
+    {
       // 1) Server + worker dữ liệu mới. Worker dùng cursor local nên không quét lặp DB.
       name: 'reportv2',
       script: 'src/server.js',
@@ -38,8 +57,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         WORKER_ENABLED: 'false',
-        BACKFILL_FROM: '2022-01-01',
-        BACKFILL_TO: '2026-07-26',
+        BACKFILL_FROM: '2026-08-01',
+        BACKFILL_TO: '2026-10-06',
         BACKFILL_CHUNK: 'day',
         BACKFILL_UPLOAD: 'true',
         BACKFILL_FORCE: 'false',
